@@ -199,35 +199,15 @@
 #define unreachable() __builtin_unreachable()
 
 /* Mark a function definition as prohibited from being cloned. */
-#define __noclone	__attribute__((__noclone__, __optimize__("no-tracer")))
+#define __noclone	__attribute__((__noclone__))
 
 #endif /* GCC_VERSION >= 40500 */
 
 #if GCC_VERSION >= 40600
 /*
- * When used with Link Time Optimization, gcc can optimize away C functions or
- * variables which are referenced only from assembly code.  __visible tells the
- * optimizer that something else uses this function or variable, thus preventing
- * this.
+ * Tell the optimizer that something else uses this function or variable.
  */
 #define __visible	__attribute__((externally_visible))
-#endif
-
-
-#if GCC_VERSION >= 40900 && !defined(__CHECKER__)
-/*
- * __assume_aligned(n, k): Tell the optimizer that the returned
- * pointer can be assumed to be k modulo n. The second argument is
- * optional (default 0), so we use a variadic macro to make the
- * shorthand.
- *
- * Beware: Do not apply this to functions which may return
- * ERR_PTRs. Also, it is probably unwise to apply it to functions
- * returning extra information in the low bits (but in that case the
- * compiler should see some alignment anyway, when the return value is
- * massaged by 'flags = ptr & 3; ptr &= ~3;').
- */
-#define __assume_aligned(a, ...) __attribute__((__assume_aligned__(a, ## __VA_ARGS__)))
 #endif
 
 /*
@@ -251,31 +231,16 @@
 #endif
 #endif /* CONFIG_ARCH_USE_BUILTIN_BSWAP */
 
-#if GCC_VERSION >= 70000
-#define KASAN_ABI_VERSION 5
-#elif GCC_VERSION >= 50000
+#if GCC_VERSION >= 50000
 #define KASAN_ABI_VERSION 4
 #elif GCC_VERSION >= 40902
 #define KASAN_ABI_VERSION 3
-#endif
-
-#if GCC_VERSION >= 40902
-/*
- * Tell the compiler that address safety instrumentation (KASAN)
- * should not be applied to that function.
- * Conflicts with inlining: https://gcc.gnu.org/bugzilla/show_bug.cgi?id=67368
- */
-#define __no_sanitize_address __attribute__((no_sanitize_address))
 #endif
 
 #endif	/* gcc version >= 40000 specific checks */
 
 #if !defined(__noclone)
 #define __noclone	/* not needed */
-#endif
-
-#if !defined(__no_sanitize_address)
-#define __no_sanitize_address
 #endif
 
 /*
