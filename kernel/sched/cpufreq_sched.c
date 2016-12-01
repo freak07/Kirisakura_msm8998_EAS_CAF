@@ -249,19 +249,46 @@ requested_capacity(struct sched_capacity_reqs *scr)
 
 void update_cpu_capacity_request(int cpu, bool request)
 {
-	unsigned long new_capacity;
 	struct sched_capacity_reqs *scr;
+	unsigned long new_capacity = 0;
 
 	/* The rq lock serializes access to the CPU's sched_capacity_reqs. */
 	lockdep_assert_held(&cpu_rq(cpu)->lock);
 
 	scr = &per_cpu(cpu_sched_capacity_reqs, cpu);
 
-	new_capacity = requested_capacity(scr);
-	new_capacity = new_capacity * capacity_margin
-		/ SCHED_CAPACITY_SCALE;
-	new_capacity += scr->dl;
+#ifdef CONFIG_SCHED_WALT
+	if (!walt_disabled && sysctl_sched_use_walt_cpu_util) {
+		/*
+		 * Same WALT signal is set at different places, take the max
+		 * reported utilization
+		 */
+		new_capacity = max(scr->cfs, scr->rt);
+		new_capacity = max(new_capacity, scr->dl);
 
+		/*
+		 * Margin should be added just to FAIR and RT tasks but with
+		 * WALT we cannot distinguish thus here we set the margin
+		 * to the most recent reported utilization.
+		 *
+		 * NOTE: this implies that when WALT is in use, we add a (not
+		 *       necessary) margin to DL tasks too. */
+		new_capacity *= capacity_margin;
+		new_capacity /= SCHED_CAPACITY_SCALE;
+	} else {
+#endif
+		/*
+		 * For PELT, utilization is aggregated
+		 */
+		new_capacity = requested_capacity(scr);
+		/* Add capacity marging just to FAIR and RT classes */
+		new_capacity *= capacity_margin;
+		new_capacity /= SCHED_CAPACITY_SCALE;
+		/* Add DL utilization */
+		new_capacity += scr->dl;
+#ifdef CONFIG_SCHED_WALT
+	}
+#endif
 	if (new_capacity == scr->total)
 		return;
 
