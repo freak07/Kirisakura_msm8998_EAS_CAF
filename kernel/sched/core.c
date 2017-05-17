@@ -2455,6 +2455,7 @@ void wake_up_new_task(struct task_struct *p)
 
 	/* Initialize new task's runnable average */
 	init_entity_runnable_average(&p->se);
+	init_rt_entity_runnable_average(&p->rt);
 #ifdef CONFIG_SMP
 	/*
 	 * Fork balancing, do it here and not earlier because:
