@@ -69,6 +69,23 @@ static inline void update_cpu_load_active(struct rq *this_rq) { }
 #define NICE_0_SHIFT		SCHED_LOAD_SHIFT
 
 /*
+ * Unsigned subtract and clamp on underflow.
+ *
+ * Explicitly do a load-store to ensure the intermediate value never hits
+ * memory. This allows lockless observations without ever seeing the negative
+ * values.
+ */
+#define sub_positive(_ptr, _val) do {				\
+	typeof(_ptr) ptr = (_ptr);				\
+	typeof(*ptr) val = (_val);				\
+	typeof(*ptr) res, var = READ_ONCE(*ptr);		\
+	res = var - val;					\
+	if (res > var)						\
+		res = 0;					\
+	WRITE_ONCE(*ptr, res);					\
+} while (0)
+
+/*
  * Single value that decides SCHED_DEADLINE internal math precision.
  * 10 -> just above 1us
  * 9  -> just above 0.5us
@@ -345,6 +362,16 @@ static inline void set_task_rq_fair(struct sched_entity *se,
 #endif /* CONFIG_SMP */
 #endif /* CONFIG_FAIR_GROUP_SCHED */
 
+#ifdef CONFIG_RT_GROUP_SCHED
+#ifdef CONFIG_SMP
+extern void set_task_rq_rt(struct sched_rt_entity *rt_se,
+			     struct rt_rq *prev, struct rt_rq *next);
+#else /* !CONFIG_SMP */
+static inline void set_task_rq_rt(struct sched_rt_entity *rt_se,
+				struct rt_rq *prev, struct rt_rq *next) { }
+#endif /* CONFIG_SMP */
+#endif /* CONFIG_RT_GROUP_SCHED */
+
 #else /* CONFIG_CGROUP_SCHED */
 
 struct cfs_bandwidth { };
@@ -465,6 +492,7 @@ struct rt_rq {
 	struct plist_head pushable_tasks;
 
 	struct sched_avg avg;
+	atomic_long_t removed_util_avg;
 
 #ifdef HAVE_RT_PUSH_IPI
 	int push_flags;
@@ -486,6 +514,9 @@ struct rt_rq {
 
 	struct rq *rq;
 	struct task_group *tg;
+#endif
+#ifndef CONFIG_64BIT
+	u64 load_last_update_time_copy;
 #endif
 };
 
@@ -795,6 +826,17 @@ static inline u64 rq_clock_task(struct rq *rq)
 	return rq->clock_task;
 }
 
+enum from_class {
+	FAIR,
+	RT,
+};
+
+void update_load_avg_rt_se(u64 now,
+			   int cpu,
+			   struct sched_rt_entity *rt_se,
+			   int running);
+int update_rt_rq_load_avg(u64 now, int cpu, struct rt_rq *rt_rq, int running);
+
 #define RQCF_REQ_SKIP	0x01
 #define RQCF_ACT_SKIP	0x02
 
@@ -1021,6 +1063,7 @@ static inline void set_task_rq(struct task_struct *p, unsigned int cpu)
 #endif
 
 #ifdef CONFIG_RT_GROUP_SCHED
+	set_task_rq_rt(&p->rt, p->rt.rt_rq, tg->rt_rq[cpu]);
 	p->rt.rt_rq  = tg->rt_rq[cpu];
 	p->rt.parent = tg->rt_se[cpu];
 #endif
@@ -1108,6 +1151,25 @@ static inline u64 global_rt_runtime(void)
 
 	return (u64)sysctl_sched_rt_runtime * NSEC_PER_USEC;
 }
+
+#ifdef CONFIG_RT_GROUP_SCHED
+#define rt_entity_is_task(rt_se) (!(rt_se)->my_q)
+
+static inline struct task_struct *rt_task_of(struct sched_rt_entity *rt_se)
+{
+#ifdef CONFIG_SCHED_DEBUG
+	WARN_ON_ONCE(!rt_entity_is_task(rt_se));
+#endif
+	return container_of(rt_se, struct task_struct, rt);
+}
+#else
+#define rt_entity_is_task(rt_se) (1)
+
+static inline struct task_struct *rt_task_of(struct sched_rt_entity *rt_se)
+{
+	return container_of(rt_se, struct task_struct, rt);
+}
+#endif /* CONFIG_RT_GROUP_SCHED */
 
 static inline int task_current(struct rq *rq, struct task_struct *p)
 {
@@ -1422,6 +1484,7 @@ extern void init_dl_task_timer(struct sched_dl_entity *dl_se);
 unsigned long to_ratio(u64 period, u64 runtime);
 
 extern void init_entity_runnable_average(struct sched_entity *se);
+extern void init_rt_entity_runnable_average(struct sched_rt_entity *rt_se);
 extern void post_init_entity_util_avg(struct sched_entity *se);
 
 static inline void __add_nr_running(struct rq *rq, unsigned count)
