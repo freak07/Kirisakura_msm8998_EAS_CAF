@@ -1667,6 +1667,8 @@ static inline unsigned long cpu_util_est(int cpu)
 out:
 	return min(util, capacity);
 }
+
+unsigned long boosted_cpu_util(int cpu);
 #endif
 
 #ifdef CONFIG_CPU_FREQ_GOV_SCHED

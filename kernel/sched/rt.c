@@ -1488,17 +1488,13 @@ static void check_preempt_curr_rt(struct rq *rq, struct task_struct *p, int flag
 
 static void sched_rt_update_capacity_req(struct rq *rq, bool tick)
 {
-	u64 total, used, age_stamp, avg;
-	s64 delta;
-	int cpu = cpu_of(rq);
-
 	if (!sched_freq())
 		return;
 
 #ifdef CONFIG_SCHED_WALT
 	if (!walt_disabled && sysctl_sched_use_walt_cpu_util) {
-		unsigned long cpu_utilization = boosted_cpu_util(cpu);
-		unsigned long capacity_curr = capacity_curr_of(cpu);
+		unsigned long cpu_utilization = boosted_cpu_util(rq->cpu);
+		unsigned long capacity_curr = capacity_curr_of(rq->cpu);
 		int req = 1;
 
 		/*
@@ -1508,30 +1504,13 @@ static void sched_rt_update_capacity_req(struct rq *rq, bool tick)
 		if (tick && cpu_utilization <= capacity_curr)
 			req = 0;
 
-		set_rt_cpu_capacity(cpu, req, cpu_utilization);
+		set_rt_cpu_capacity(rq->cpu, req, cpu_utilization);
 
 		return;
 	}
 #endif
-	sched_avg_update(rq);
-	/*
-	 * Since we're reading these variables without serialization make sure
-	 * we read them once before doing sanity checks on them.
-	 */
-	age_stamp = READ_ONCE(rq->age_stamp);
-	avg = READ_ONCE(rq->rt_avg);
-	delta = rq_clock(rq) - age_stamp;
 
-	if (unlikely(delta < 0))
-		delta = 0;
-
-	total = sched_avg_period() + delta;
-
-	used = div_u64(avg, total);
-	if (unlikely(used > SCHED_CAPACITY_SCALE))
-		used = SCHED_CAPACITY_SCALE;
-
-	set_rt_cpu_capacity(cpu, 1, (unsigned long)(used));
+	set_rt_cpu_capacity(rq->cpu, 1, rq->rt.avg.util_avg);
 }
 #else
 static inline void sched_rt_update_capacity_req(struct rq *rq, bool tick)
