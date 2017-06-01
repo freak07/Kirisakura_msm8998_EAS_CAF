@@ -813,6 +813,10 @@ void init_entity_runnable_average(struct sched_entity *se)
 	sa->util_avg = 0;
 	sa->util_sum = 0;
 	/* when this task enqueue'ed, it will contribute to its cfs_rq's load_avg */
+
+	ewma_util_init(&sa->util_ewma);
+	sa->util_est.ewma = 0;
+	sa->util_est.last = 0;
 }
 
 static inline u64 cfs_rq_clock_task(struct cfs_rq *cfs_rq);
@@ -4740,7 +4744,25 @@ static void update_capacity_of(int cpu)
 	req_cap = req_cap * SCHED_CAPACITY_SCALE / capacity_orig_of(cpu);
 	set_cfs_cpu_capacity(cpu, true, req_cap);
 }
-#endif
+
+static inline unsigned long task_util(struct task_struct *p);
+static inline unsigned long task_util_est(struct task_struct *p);
+
+static inline void util_est_enqueue(struct task_struct *p)
+{
+	struct cfs_rq *cfs_rq = &task_rq(p)->cfs;
+
+	if (!sched_feat(UTIL_EST))
+		return;
+
+	/*
+	 * Update (top level CFS) RQ estimated utilization.
+	 * NOTE: here we assumes that we never change the
+	 *       utilization estimation policy at run-time.
+	 */
+	cfs_rq->avg.util_est.last += task_util_est(p);
+}
+#endif /* CONFIG_SMP */
 
 /*
  * The enqueue_task method is called before nr_running is
@@ -4752,11 +4774,6 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 {
 	struct cfs_rq *cfs_rq;
 	struct sched_entity *se = &p->se;
-#ifdef CONFIG_SMP
-	int task_new = flags & ENQUEUE_WAKEUP_NEW;
-	int task_wakeup = flags & ENQUEUE_WAKEUP;
-#endif
-
 	/*
 	 * If in_iowait is set, the code below may not trigger any cpufreq
 	 * utilization updates, so do it here explicitly with the IOWAIT flag
@@ -4801,6 +4818,8 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 		add_nr_running(rq, 1);
 
 #ifdef CONFIG_SMP
+	/* Update CPU's estimated utilization */
+	util_est_enqueue(p);
 
 	/*
 	 * Update SchedTune accounting.
@@ -4822,6 +4841,9 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	schedtune_enqueue_task(p, cpu_of(rq));
 
 	if (!se) {
+		int task_new = flags & ENQUEUE_WAKEUP_NEW;
+		int task_wakeup = flags & ENQUEUE_WAKEUP;
+
 		walt_inc_cumulative_runnable_avg(rq, p);
 		if (!task_new && !rq->rd->overutilized &&
 		    cpu_overutilized(rq->cpu)) {
@@ -4841,8 +4863,53 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 	}
 
 #endif /* CONFIG_SMP */
+
 	hrtick_update(rq);
 }
+
+#ifdef CONFIG_SMP
+static inline void util_est_dequeue(struct task_struct *p, int flags)
+{
+	struct cfs_rq *cfs_rq = &task_rq(p)->cfs;
+	int task_sleep = flags & DEQUEUE_SLEEP;
+	long util_est;
+
+	if (!sched_feat(UTIL_EST))
+		return;
+
+	/*
+	 * Update (top level CFS) RQ estimated utilization
+	 *
+	 * When *p is the last FAIR task then the RQ's estimated utilization
+	 * is 0 by its definition.
+	 *
+	 * Otherwise, in removing *p's util_est from the current RQ's util_est
+	 * we should account for cases where this last activation of *p was
+	 * longher then the previous ones. In these cases as well we set to 0
+	 * the new estimated utilization for the CPU.
+	 */
+	util_est = (cfs_rq->nr_running > 1)
+		? cfs_rq->avg.util_est.last - task_util_est(p)
+		: 0;
+	if (util_est < 0)
+		util_est = 0;
+	cfs_rq->avg.util_est.last = util_est;
+
+	/*
+	 * Update Task's estimated utilization
+	 *
+	 * When *p completes an activation we can consolidate another sample
+	 * about the task size. This is done by storing the last PELT value
+	 * for this task and using this value to load another sample in the
+	 * EMWA for the task.
+	 */
+	if (task_sleep) {
+		p->se.avg.util_est.last = task_util(p);
+		ewma_util_add(&p->se.avg.util_ewma, task_util(p));
+		p->se.avg.util_est.ewma = ewma_util_read(&p->se.avg.util_ewma);
+	}
+}
+#endif
 
 static void set_next_buddy(struct sched_entity *se);
 
@@ -4913,6 +4980,8 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 		sub_nr_running(rq, 1);
 
 #ifdef CONFIG_SMP
+	/* Update CPU's estimated utilization */
+	util_est_dequeue(p, flags);
 
 	/*
 	 * Update SchedTune accounting
@@ -5921,6 +5990,16 @@ static inline unsigned long task_util(struct task_struct *p)
 	}
 #endif
 	return p->se.avg.util_avg;
+}
+
+static inline unsigned long task_util_est(struct task_struct *p)
+{
+	struct sched_avg *sa = &p->se.avg;
+
+	if (!sched_feat(UTIL_EST))
+		return task_util(p);
+
+	return util_est(sa, UTIL_EST_POLICY);
 }
 
 static inline unsigned long boosted_task_util(struct task_struct *task);
