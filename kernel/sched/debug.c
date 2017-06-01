@@ -90,6 +90,8 @@ static void print_cfs_group_stats(struct seq_file *m, int cpu, struct task_group
 #ifdef CONFIG_SMP
 	P(se->avg.load_avg);
 	P(se->avg.util_avg);
+	P(se->avg.util_est.ewma);
+	P(se->avg.util_est.last);
 #endif
 #undef PN
 #undef P
@@ -212,6 +214,10 @@ void print_cfs_rq(struct seq_file *m, int cpu, struct cfs_rq *cfs_rq)
 			cfs_rq->runnable_load_avg);
 	SEQ_printf(m, "  .%-30s: %lu\n", "util_avg",
 			cfs_rq->avg.util_avg);
+	SEQ_printf(m, "  .%-30s: %lu\n", "util_est.ewma",
+			cfs_rq->avg.util_est.ewma);
+	SEQ_printf(m, "  .%-30s: %lu\n", "util_est.last",
+			cfs_rq->avg.util_est.last);
 	SEQ_printf(m, "  .%-30s: %ld\n", "removed_load_avg",
 			atomic_long_read(&cfs_rq->removed_load_avg));
 	SEQ_printf(m, "  .%-30s: %ld\n", "removed_util_avg",
@@ -658,6 +664,8 @@ void proc_sched_show_task(struct task_struct *p, struct seq_file *m)
 	P(se.avg.util_sum);
 	P(se.avg.load_avg);
 	P(se.avg.util_avg);
+	P(se.avg.util_est.ewma);
+	P(se.avg.util_est.last);
 	P(se.avg.last_update_time);
 #endif
 	P(policy);
