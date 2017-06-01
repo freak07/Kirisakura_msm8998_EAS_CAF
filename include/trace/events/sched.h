@@ -660,8 +660,10 @@ TRACE_EVENT(sched_load_avg_task,
 		__field( int,	cpu				)
 		__field( unsigned long,	load_avg		)
 		__field( unsigned long,	util_avg		)
-		__field( unsigned long,	util_avg_pelt	)
-		__field( unsigned long,	util_avg_walt	)
+		__field( unsigned long,	util_avg_pelt		)
+		__field( unsigned long,	util_avg_walt		)
+		__field( unsigned long, ewma                    )
+		__field( unsigned long, last                    )
 		__field( u64,		load_sum		)
 		__field( u32,		util_sum		)
 		__field( u32,		period_contrib		)
@@ -673,6 +675,8 @@ TRACE_EVENT(sched_load_avg_task,
 		__entry->cpu			= task_cpu(tsk);
 		__entry->load_avg		= avg->load_avg;
 		__entry->util_avg		= avg->util_avg;
+		__entry->ewma			= avg->util_est.ewma;
+		__entry->last			= avg->util_est.last;
 		__entry->load_sum		= avg->load_sum;
 		__entry->util_sum		= avg->util_sum;
 		__entry->period_contrib		= avg->period_contrib;
@@ -686,8 +690,8 @@ TRACE_EVENT(sched_load_avg_task,
 #endif
 	),
 	TP_printk("comm=%s pid=%d cpu=%d load_avg=%lu util_avg=%lu "
-			"util_avg_pelt=%lu util_avg_walt=%lu load_sum=%llu"
-		  " util_sum=%u period_contrib=%u",
+		  "util_avg_pelt=%lu util_avg_walt=%lu ewma=%lu last=%lu "
+		  "load_sum=%llu util_sum=%u period_contrib=%u",
 		  __entry->comm,
 		  __entry->pid,
 		  __entry->cpu,
@@ -695,6 +699,8 @@ TRACE_EVENT(sched_load_avg_task,
 		  __entry->util_avg,
 		  __entry->util_avg_pelt,
 		  __entry->util_avg_walt,
+		  __entry->ewma,
+		  __entry->last,
 		  (u64)__entry->load_sum,
 		  (u32)__entry->util_sum,
 		  (u32)__entry->period_contrib)
@@ -713,8 +719,9 @@ TRACE_EVENT(sched_load_avg_cpu,
 		__field( int,	cpu				)
 		__field( unsigned long,	load_avg		)
 		__field( unsigned long,	util_avg		)
-		__field( unsigned long,	util_avg_pelt	)
-		__field( unsigned long,	util_avg_walt	)
+		__field( unsigned long,	util_avg_pelt		)
+		__field( unsigned long,	util_avg_walt		)
+		__field( unsigned long,	last			)
 	),
 
 	TP_fast_assign(
@@ -730,12 +737,14 @@ TRACE_EVENT(sched_load_avg_cpu,
 		if (!walt_disabled && sysctl_sched_use_walt_cpu_util)
 			__entry->util_avg		= __entry->util_avg_walt;
 #endif
+		__entry->last			= cfs_rq->avg.util_est.last;
 	),
 
 	TP_printk("cpu=%d load_avg=%lu util_avg=%lu "
-			  "util_avg_pelt=%lu util_avg_walt=%lu",
+		  "util_avg_pelt=%lu util_avg_walt=%lu last=%lu",
 		  __entry->cpu, __entry->load_avg, __entry->util_avg,
-		  __entry->util_avg_pelt, __entry->util_avg_walt)
+		  __entry->util_avg_pelt, __entry->util_avg_walt,
+		  __entry->last)
 );
 
 /*
