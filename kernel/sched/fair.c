@@ -3221,6 +3221,15 @@ update_cfs_rq_load_avg(u64 now, struct cfs_rq *cfs_rq, bool update_freq)
 	return decayed || removed;
 }
 
+int update_rt_rq_load_avg(u64 now, int cpu, struct rt_rq *rt_rq, int running)
+{
+	int ret;
+
+	ret = __update_load_avg(now, cpu, &rt_rq->avg, 0, running, NULL);
+
+	return ret;
+}
+
 /*
  * Optional action to be done while updating the load average
  */
@@ -3417,6 +3426,11 @@ static int idle_balance(struct rq *this_rq);
 
 static inline int
 update_cfs_rq_load_avg(u64 now, struct cfs_rq *cfs_rq, bool update_freq)
+{
+	return 0;
+}
+
+int update_rt_rq_load_avg(u64 now, int cpu, struct rt_rq *rt_rq, int running)
 {
 	return 0;
 }
@@ -7976,6 +7990,9 @@ static void update_blocked_averages(int cpu)
 		if (cfs_rq->tg->se[cpu])
 			update_load_avg(cfs_rq->tg->se[cpu], 0);
 	}
+
+	update_rt_rq_load_avg(rq_clock_task(rq), cpu, &rq->rt, 0);
+
 	raw_spin_unlock_irqrestore(&rq->lock, flags);
 }
 
@@ -8035,6 +8052,7 @@ static inline void update_blocked_averages(int cpu)
 	raw_spin_lock_irqsave(&rq->lock, flags);
 	update_rq_clock(rq);
 	update_cfs_rq_load_avg(cfs_rq_clock_task(cfs_rq), cfs_rq, true);
+	update_rt_rq_load_avg(rq_clock_task(rq), cpu, &rq->rt, 0);
 	raw_spin_unlock_irqrestore(&rq->lock, flags);
 }
 
