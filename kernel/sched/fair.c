@@ -6630,7 +6630,7 @@ static inline void update_group_target_capacity(
 }
 
 static inline int find_best_target(struct task_struct *p, int *backup_cpu,
-				   bool boosted, bool prefer_idle)
+				   int prev_cpu, bool boosted, bool prefer_idle)
 {
 	unsigned long high_cpu_util = SCHED_CAPACITY_SCALE;
 	unsigned long best_idle_min_cap_orig = ULONG_MAX;
@@ -6828,6 +6828,20 @@ static inline int find_best_target(struct task_struct *p, int *backup_cpu,
 				best_active_cpu = i;
 				continue;
 			}
+
+			/*
+			 * Enforce energy_diff
+			 *
+			 * For non latency sensitive tasks, skip the task's
+			 * previous CPU.
+			 *
+			 * The goal here is to try hard to find another
+			 * possible candidate and use energy_diff to find out
+			 * if it's more energy efficient to move the task
+			 * there.
+			 */
+			if (i == prev_cpu)
+				continue;
 
 			/*
 			 * Enforce EAS mode
@@ -7043,7 +7057,7 @@ static int select_energy_cpu_brute(struct task_struct *p, int prev_cpu, int sync
 	sync_entity_load_avg(&p->se);
 
 	/* Find a cpu with sufficient capacity */
-	next_cpu = find_best_target(p, &backup_cpu, boosted, prefer_idle);
+	next_cpu = find_best_target(p, &backup_cpu, prev_cpu, boosted, prefer_idle);
 	if (next_cpu == -1) {
 		target_cpu = prev_cpu;
 		goto unlock;
