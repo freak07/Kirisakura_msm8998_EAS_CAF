@@ -12,7 +12,11 @@ struct target_nrg {
 	struct reciprocal_value rdiv;
 };
 
+extern struct target_nrg schedtune_target_nrg;
+
 #ifdef CONFIG_CGROUP_SCHEDTUNE
+
+extern bool schedtune_initialized;
 
 int schedtune_cpu_boost(int cpu);
 int schedtune_task_boost(struct task_struct *tsk);
@@ -25,6 +29,8 @@ void schedtune_enqueue_task(struct task_struct *p, int cpu);
 void schedtune_dequeue_task(struct task_struct *p, int cpu);
 
 #else /* CONFIG_CGROUP_SCHEDTUNE */
+
+#define schedtune_initialized true
 
 #define schedtune_cpu_boost(cpu)  get_sysctl_sched_cfs_boost()
 #define schedtune_task_boost(tsk) get_sysctl_sched_cfs_boost()
