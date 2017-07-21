@@ -84,3 +84,13 @@ SCHED_FEAT(ENERGY_AWARE, false)
  * Has no impact if CONFIG_SMP is not enabled.
  */
 SCHED_FEAT(UTIL_EST, false)
+
+#ifdef CONFIG_SCHED_TUNE
+/*
+ * SchedTune. Use system-wide energy normalization for PE filtering.
+ * When this feature is enabled, SchedTune evaluates energy differences in
+ * absolute terms, i.e. how much they impact with respect to the overall
+ * power consumed when all the CPUs have 100% utilization.
+ */
+SCHED_FEAT(ENERGY_NORMALIZE, false)
+#endif
