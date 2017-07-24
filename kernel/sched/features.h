@@ -93,4 +93,12 @@ SCHED_FEAT(UTIL_EST, false)
  * power consumed when all the CPUs have 100% utilization.
  */
 SCHED_FEAT(ENERGY_NORMALIZE, false)
+
+/*
+ * SchedTune. Use Performance/Energy filtering function to evaluate the trade
+ * off between energy consumption and performance impact when comparing
+ * previous and next candidate CPUs.
+ */
+SCHED_FEAT(ENERGY_FILTER, true)
+
 #endif
