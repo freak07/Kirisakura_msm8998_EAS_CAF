@@ -56,7 +56,16 @@ unsigned int normalized_sysctl_sched_latency = 6000000ULL;
 unsigned int sysctl_sched_sync_hint_enable = 1;
 unsigned int sysctl_sched_initial_task_util = 0;
 unsigned int sysctl_sched_cstate_aware = 1;
-
+#ifdef CONFIG_SMP
+/*
+ * When looking for a CPU where a task fits, how long we want
+ * that task to be able to run at max_capacity before the CPU
+ * will become overutilized. Used to guide task placement in
+ * EAS mode, and avoid becoming overutilized immediately upon
+ * migration for energy reasons.
+ */
+unsigned int sysctl_sched_migration_target_runtime_periods = 10;
+#endif
 #ifdef CONFIG_SCHED_WALT
 unsigned int sysctl_sched_use_walt_cpu_util = 1;
 unsigned int sysctl_sched_use_walt_task_util = 1;
@@ -621,6 +630,47 @@ struct sched_entity *__pick_last_entity(struct cfs_rq *cfs_rq)
 	return rb_entry(last, struct sched_entity, run_node);
 }
 
+#ifdef CONFIG_SMP
+static inline void update_group_target_capacity(
+		struct sched_group_capacity *sgc);
+
+int sched_migration_target_handler(struct ctl_table *table, int write,
+		void __user *buffer, size_t *lenp,
+		loff_t *ppos)
+{
+	unsigned int old = sysctl_sched_migration_target_runtime_periods;
+	int ret = proc_dointvec_minmax(table, write, buffer, lenp, ppos);
+	struct sched_domain *sd;
+	struct sched_group *sg;
+	int cpu;
+
+	if (ret || !write)
+		return ret;
+
+	if (old == sysctl_sched_migration_target_runtime_periods)
+		return 0;
+
+	/* update sched group capacity */
+	mutex_lock(&sched_domains_mutex);
+	for_each_online_cpu(cpu) {
+		sd = rcu_dereference(per_cpu(sd_scs, cpu));
+		for_each_domain(cpu, sd) {
+			sg = sd->groups;
+
+			/* Has this sched_domain already been visited? */
+			if (sd->child && group_first_cpu(sg) != cpu)
+				break;
+
+			do {
+				update_group_target_capacity(sg->sgc);
+			} while (sg = sg->next, sg != sd->groups);
+		}
+	}
+	mutex_unlock(&sched_domains_mutex);
+
+	return 0;
+}
+#endif
 /**************************************************************
  * Scheduling class statistics methods:
  */
@@ -6339,6 +6389,46 @@ static int start_cpu(bool boosted)
 	return boosted ? rd->max_cap_orig_cpu : rd->min_cap_orig_cpu;
 }
 
+/*
+ * calculate what value the utilization signal would have had
+ * 'periods' earlier if it has curr_util now and was running at
+ * capacity 'cap'
+ */
+static inline unsigned long prev_util(unsigned long periods,
+		unsigned long cap, unsigned long curr_util)
+{
+	/* scale periods to match asymmetric capacity scaling */
+	periods = (periods * cap) >> SCHED_CAPACITY_SHIFT;
+
+	return decay_load(curr_util, periods);
+}
+
+/*
+ * Here we are going to model the rate at which the
+ * utilization signal rises at the maximum capacity of the
+ * CPU we are considering in order to determine what the
+ * utilization of a task should be if we are to allow it
+ * to run continuously for
+ * sysctl_sched_migration_target_runtime_periods.
+ * If we scale the number of periods by the ratio of
+ * cpu_max_capacity to system_max_capacity, we can reuse
+ * the optimised decay_load function to work out how much
+ * utilization a task needs to have to remain below the
+ * overutilized point when running for the specified time.
+ */
+static inline void update_group_target_capacity(
+		struct sched_group_capacity *sgc)
+{
+	unsigned long int overutilized_capacity;
+
+	overutilized_capacity = (sgc->max_capacity << SCHED_CAPACITY_SHIFT)
+			/ capacity_margin;
+
+	sgc->tgt_capacity = prev_util(
+			sysctl_sched_migration_target_runtime_periods,
+			sgc->max_capacity, overutilized_capacity);
+}
+
 static inline int find_best_target(struct task_struct *p, int *backup_cpu,
 				   bool boosted, bool prefer_idle)
 {
@@ -6494,8 +6584,7 @@ static inline int find_best_target(struct task_struct *p, int *backup_cpu,
 			 * The goal here is to remain in EAS mode as long as
 			 * possible at least for !prefer_idle tasks.
 			 */
-			if ((new_util * capacity_margin) >
-			    (capacity_orig * SCHED_CAPACITY_SCALE))
+			if (new_util > sg->sgc->tgt_capacity)
 				continue;
 
 			/*
@@ -8069,6 +8158,7 @@ void update_group_capacity(struct sched_domain *sd, int cpu)
 	sdg->sgc->capacity = capacity;
 	sdg->sgc->max_capacity = max_capacity;
 	sdg->sgc->min_capacity = min_capacity;
+	update_group_target_capacity(sdg->sgc);
 }
 
 /*

@@ -916,6 +916,12 @@ struct sched_group_capacity {
 	unsigned long capacity;
 	unsigned long max_capacity; /* Max per-cpu capacity in group */
 	unsigned long min_capacity; /* Min per-CPU capacity in group */
+	unsigned long tgt_capacity;
+	/* tgt_capacity represents the utilization of a task if it is
+	 * to be able to fit into a CPU of this group, run for
+	 * sysctl_sched_migration_target_runtime_periods, and not
+	 * push CPU util into overutilization.
+	 */
 	unsigned long next_update;
 	int imbalance; /* XXX unrelated to capacity but shared group state */
 	/*
