@@ -270,6 +270,8 @@ static int max_sched_granularity_ns = NSEC_PER_SEC;	/* 1 second */
 static int min_wakeup_granularity_ns;			/* 0 usecs */
 static int max_wakeup_granularity_ns = NSEC_PER_SEC;	/* 1 second */
 #ifdef CONFIG_SMP
+static int min_migration_tgt_runtime; /* 0ms */
+static int max_migration_tgt_runtime = 345; /* LOAD_AVG_MAX_N from fair.c */
 static int min_sched_tunable_scaling = SCHED_TUNABLESCALING_NONE;
 static int max_sched_tunable_scaling = SCHED_TUNABLESCALING_END-1;
 #endif /* CONFIG_SMP */
@@ -404,6 +406,15 @@ static struct ctl_table kern_table[] = {
 		.maxlen		= sizeof(unsigned int),
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec,
+	},
+	{
+		.procname	= "sched_migration_target_runtime_periods",
+		.data		= &sysctl_sched_migration_target_runtime_periods,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= sched_migration_target_handler,
+		.extra1		= &min_migration_tgt_runtime,
+		.extra2		= &max_migration_tgt_runtime,
 	},
 #endif /* CONFIG_SMP */
 #ifdef CONFIG_NUMA_BALANCING

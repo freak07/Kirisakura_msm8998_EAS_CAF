@@ -71,6 +71,14 @@ extern unsigned int sysctl_sched_shares_window;
 int sched_proc_update_handler(struct ctl_table *table, int write,
 		void __user *buffer, size_t *length,
 		loff_t *ppos);
+
+#ifdef CONFIG_SMP
+extern unsigned int sysctl_sched_migration_target_runtime_periods;
+
+int sched_migration_target_handler(struct ctl_table *table, int write,
+		void __user *buffer, size_t *lenp,
+		loff_t *ppos);
+#endif
 #endif
 
 /*
