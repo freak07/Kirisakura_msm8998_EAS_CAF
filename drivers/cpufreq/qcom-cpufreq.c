@@ -487,6 +487,22 @@ static int __init msm_cpufreq_register(void)
 	return cpufreq_register_driver(&msm_cpufreq_driver);
 }
 
+int is_sync_cpu(struct cpumask *mask, int first_cpu)
+{
+	int cpu;
+
+	for_each_cpu_and(cpu, mask, cpu_possible_mask) {
+		if (cpu == first_cpu)
+			continue;
+		if (cpu_clk[cpu] != cpu_clk[first_cpu])
+			return 0;
+	}
+
+	return 1;
+}
+
+EXPORT_SYMBOL(is_sync_cpu);
+
 subsys_initcall(msm_cpufreq_register);
 
 static int __init msm_cpufreq_early_register(void)
