@@ -138,6 +138,7 @@ static const struct snd_kcontrol_new name##_mux = \
 #define  CF_MIN_3DB_75HZ		0x1
 #define  CF_MIN_3DB_150HZ		0x2
 
+#define  SB_OF_UF_MAX_RETRY_CNT		5
 #define CPE_ERR_WDOG_BITE BIT(0)
 #define CPE_FATAL_IRQS CPE_ERR_WDOG_BITE
 
@@ -170,6 +171,9 @@ MODULE_PARM_DESC(dig_core_collapse_timer, "timer for power gating");
 				WCD934X_HPH_NEW_INT_RDAC_GAIN_CTL + 1)
 #define TAVIL_HPH_TOTAL_REG    (TAVIL_HPH_REG_RANGE_1 + TAVIL_HPH_REG_RANGE_2 +\
 				TAVIL_HPH_REG_RANGE_3)
+
+static int anc0_ff_a_gain;
+static int anc1_ff_a_gain;
 
 enum {
 	VI_SENSE_1,
@@ -563,6 +567,17 @@ struct spk_anc_work {
 	struct delayed_work dwork;
 };
 
+#define WCD934X_HPH_ANC_EN_DELAY_MS 500
+#define WCD934X_ANC_STEP_SIZE 1
+static int hph_anc_en_delay = WCD934X_HPH_ANC_EN_DELAY_MS;
+module_param(hph_anc_en_delay, int, S_IRUGO | S_IWUSR | S_IWGRP);
+MODULE_PARM_DESC(hph_anc_en_delay, "delay to enable anc in headphone path");
+
+struct hph_anc_work {
+	struct tavil_priv *tavil;
+	struct delayed_work dwork;
+};
+
 struct hpf_work {
 	struct tavil_priv *tavil;
 	u8 decimator;
@@ -628,6 +643,7 @@ struct tavil_priv {
 	struct hpf_work tx_hpf_work[WCD934X_NUM_DECIMATORS];
 	struct tx_mute_work tx_mute_dwork[WCD934X_NUM_DECIMATORS];
 	struct spk_anc_work spk_anc_dwork;
+	struct hph_anc_work hph_anc_dwork;
 
 	unsigned int vi_feed_value;
 
@@ -657,6 +673,8 @@ struct tavil_priv {
 	int power_active_ref;
 	int sidetone_coeff_array[IIR_MAX][BAND_MAX]
 		[WCD934X_CDC_SIDETONE_IIR_COEFF_MAX];
+	int nr; /*HTC_AUD*/
+	unsigned short slim_tx_of_uf_cnt[WCD934X_TX_MAX][SB_PORT_ERR_MAX];
 };
 
 static const struct tavil_reg_mask_val tavil_spkr_default[] = {
@@ -1169,10 +1187,23 @@ static int tavil_codec_enable_anc(struct snd_soc_dapm_widget *w,
 		}
 		if (!strcmp(w->name, "RX INT1 DAC"))
 			snd_soc_update_bits(codec,
-				WCD934X_CDC_ANC0_CLK_RESET_CTL, 0x08, 0x08);
+				WCD934X_CDC_ANC0_CLK_RESET_CTL, 0x38, 0x38);
 		else if (!strcmp(w->name, "RX INT2 DAC"))
 			snd_soc_update_bits(codec,
-				WCD934X_CDC_ANC1_CLK_RESET_CTL, 0x08, 0x08);
+				WCD934X_CDC_ANC1_CLK_RESET_CTL, 0x38, 0x38);
+
+		if (snd_soc_read(codec, WCD934X_CDC_ANC0_FF_A_GAIN_CTL)) {
+			anc0_ff_a_gain = snd_soc_read(codec,
+					WCD934X_CDC_ANC0_FF_A_GAIN_CTL);
+			snd_soc_write(codec,
+					WCD934X_CDC_ANC0_FF_A_GAIN_CTL, 0x00);
+		}
+		if (snd_soc_read(codec, WCD934X_CDC_ANC1_FF_A_GAIN_CTL)) {
+			anc1_ff_a_gain = snd_soc_read(codec,
+					WCD934X_CDC_ANC1_FF_A_GAIN_CTL);
+			snd_soc_write(codec,
+					WCD934X_CDC_ANC1_FF_A_GAIN_CTL, 0x00);
+		}
 
 		if (!hwdep_cal)
 			release_firmware(fw);
@@ -1184,17 +1215,23 @@ static int tavil_codec_enable_anc(struct snd_soc_dapm_widget *w,
 			/* Remove ANC Rx from reset */
 			snd_soc_update_bits(codec,
 					    WCD934X_CDC_ANC0_CLK_RESET_CTL,
-					    0x08, 0x00);
+					    0x28, 0x00);
 			snd_soc_update_bits(codec,
 					    WCD934X_CDC_ANC1_CLK_RESET_CTL,
-					    0x08, 0x00);
+					    0x28, 0x00);
 		}
 
 		break;
 
 	case SND_SOC_DAPM_POST_PMD:
-		snd_soc_update_bits(codec, WCD934X_CDC_ANC0_RC_COMMON_CTL,
-				    0x05, 0x00);
+		if (!strcmp(w->name, "ANC HPHL PA"))
+			snd_soc_update_bits(codec,
+					    WCD934X_CDC_ANC0_RC_COMMON_CTL,
+					    0x05, 0x00);
+		if (!strcmp(w->name, "ANC HPHR PA"))
+			snd_soc_update_bits(codec,
+					    WCD934X_CDC_ANC1_RC_COMMON_CTL,
+					    0x05, 0x00);
 		if (!strcmp(w->name, "ANC EAR PA") ||
 		    !strcmp(w->name, "ANC SPK1 PA") ||
 		    !strcmp(w->name, "ANC HPHL PA")) {
@@ -1666,6 +1703,7 @@ static int tavil_codec_enable_slimtx(struct snd_soc_dapm_widget *w,
 	struct tavil_priv *tavil_p = snd_soc_codec_get_drvdata(codec);
 	struct wcd9xxx_codec_dai_data *dai;
 	struct wcd9xxx *core;
+	struct wcd9xxx_ch *ch;
 	int ret = 0;
 
 	dev_dbg(codec->dev,
@@ -1697,6 +1735,13 @@ static int tavil_codec_enable_slimtx(struct snd_soc_dapm_widget *w,
 			dev_dbg(codec->dev, "%s: Disconnect RX port, ret = %d\n",
 				 __func__, ret);
 		}
+		/* reset overflow and underflow counts */
+		list_for_each_entry(ch, &dai->wcd9xxx_ch_list, list) {
+			tavil_p->slim_tx_of_uf_cnt[ch->port][SB_PORT_ERR_OF]
+									= 0;
+			tavil_p->slim_tx_of_uf_cnt[ch->port][SB_PORT_ERR_UF]
+									= 0;
+		}
 		break;
 	}
 	return ret;
@@ -1711,6 +1756,7 @@ static int tavil_codec_enable_slimvi_feedback(struct snd_soc_dapm_widget *w,
 	struct tavil_priv *tavil_p = NULL;
 	int ret = 0;
 	struct wcd9xxx_codec_dai_data *dai = NULL;
+	struct wcd9xxx_ch *ch;
 
 	codec = snd_soc_dapm_to_codec(w->dapm);
 	tavil_p = snd_soc_codec_get_drvdata(codec);
@@ -1803,6 +1849,13 @@ static int tavil_codec_enable_slimvi_feedback(struct snd_soc_dapm_widget *w,
 			dev_dbg(codec->dev, "%s: Disconnect TX port, ret = %d\n",
 				__func__, ret);
 		}
+		/* reset over.f and under.f counts */
+		list_for_each_entry(ch, &dai->wcd9xxx_ch_list, list) {
+			tavil_p->slim_tx_of_uf_cnt[ch->port][SB_PORT_ERR_OF]
+									= 0;
+			tavil_p->slim_tx_of_uf_cnt[ch->port][SB_PORT_ERR_UF]
+									= 0;
+		}
 		if (test_bit(VI_SENSE_1, &tavil_p->status_mask)) {
 			/* Disable V&I sensing */
 			dev_dbg(codec->dev, "%s: spkr1 disabled\n", __func__);
@@ -1866,6 +1919,46 @@ static int tavil_codec_enable_rx_bias(struct snd_soc_dapm_widget *w,
 		tavil->rx_bias_count);
 
 	return 0;
+}
+
+static void tavil_hph_anc_update_callback(struct work_struct *work)
+{
+	struct hph_anc_work *hph_anc_dwork;
+	struct tavil_priv *tavil;
+	struct delayed_work *delayed_work;
+	struct snd_soc_codec *codec;
+	int gain;
+
+	delayed_work = to_delayed_work(work);
+	hph_anc_dwork = container_of(delayed_work, struct hph_anc_work, dwork);
+	tavil = hph_anc_dwork->tavil;
+	codec = tavil->codec;
+
+	snd_soc_update_bits(codec, WCD934X_CDC_RX1_RX_PATH_CFG0, 0x10, 0x10);
+	snd_soc_update_bits(codec, WCD934X_CDC_RX2_RX_PATH_CFG0, 0x10, 0x10);
+
+
+	/* Ramp gain from 0 to anc0_ff_a_gain and anc1_ff_a_gain */
+	gain = WCD934X_ANC_STEP_SIZE;
+	while ((gain <= anc0_ff_a_gain) || (gain <= anc1_ff_a_gain)) {
+		if (gain >= anc0_ff_a_gain)
+			snd_soc_write(codec, WCD934X_CDC_ANC0_FF_A_GAIN_CTL,
+					anc0_ff_a_gain);
+		else
+			snd_soc_write(codec, WCD934X_CDC_ANC0_FF_A_GAIN_CTL,
+					gain);
+
+		if (gain >= anc1_ff_a_gain)
+			snd_soc_write(codec, WCD934X_CDC_ANC1_FF_A_GAIN_CTL,
+					anc1_ff_a_gain);
+		else
+			snd_soc_write(codec, WCD934X_CDC_ANC1_FF_A_GAIN_CTL,
+					gain);
+
+		usleep_range(5000, 5500);
+		gain += WCD934X_ANC_STEP_SIZE;
+	}
+
 }
 
 static void tavil_spk_anc_update_callback(struct work_struct *work)
@@ -1986,6 +2079,35 @@ static void tavil_codec_clear_anc_tx_hold(struct tavil_priv *tavil)
 		tavil_codec_set_tx_hold(tavil->codec, WCD934X_ANA_AMIC4, false);
 }
 
+static void tavil_anc_ramp_down_anc_gain(struct snd_soc_codec *codec,
+		int gain, int reg)
+{
+
+	int gain1, gain2;
+
+	gain1 = snd_soc_read(codec, WCD934X_CDC_ANC0_FF_A_GAIN_CTL);
+	gain2 = snd_soc_read(codec, WCD934X_CDC_ANC1_FF_A_GAIN_CTL);
+
+	while ((gain1 > 0) || (gain2 > 0)) {
+		gain1 -= WCD934X_ANC_STEP_SIZE;
+		gain2 -= WCD934X_ANC_STEP_SIZE;
+
+		if (gain1 <= 0)
+			snd_soc_write(codec, WCD934X_CDC_ANC0_FF_A_GAIN_CTL, 0);
+		else
+			snd_soc_write(codec, WCD934X_CDC_ANC0_FF_A_GAIN_CTL,
+				gain1);
+
+		if (gain2 <= 0)
+			snd_soc_write(codec, WCD934X_CDC_ANC1_FF_A_GAIN_CTL, 0);
+		else
+			snd_soc_write(codec, WCD934X_CDC_ANC1_FF_A_GAIN_CTL,
+				gain2);
+
+		usleep_range(5000, 5500);
+	}
+}
+
 static int tavil_codec_enable_hphr_pa(struct snd_soc_dapm_widget *w,
 				      struct snd_kcontrol *kcontrol,
 				      int event)
@@ -2093,6 +2215,8 @@ static int tavil_codec_enable_hphr_pa(struct snd_soc_dapm_widget *w,
 						    0x04, 0x00);
 			/* Remove ANC Rx from reset */
 			ret = tavil_codec_enable_anc(w, kcontrol, event);
+			schedule_delayed_work(&tavil->hph_anc_dwork.dwork,
+					msecs_to_jiffies(hph_anc_en_delay));
 		}
 		tavil_codec_override(codec, tavil->hph_mode, event);
 		break;
@@ -2110,8 +2234,16 @@ static int tavil_codec_enable_hphr_pa(struct snd_soc_dapm_widget *w,
 				    0x10, 0x10);
 		snd_soc_update_bits(codec, WCD934X_CDC_RX2_RX_PATH_MIX_CTL,
 				    0x10, 0x10);
-		if (!(strcmp(w->name, "ANC HPHR PA")))
+		if (!(strcmp(w->name, "ANC HPHR PA"))) {
+			snd_soc_update_bits(codec, WCD934X_CDC_RX1_RX_PATH_CTL,
+					0x10, 0x10);
+			snd_soc_update_bits(codec,
+					WCD934X_CDC_RX1_RX_PATH_MIX_CTL,
+					0x10, 0x10);
+			tavil_anc_ramp_down_anc_gain(codec, anc1_ff_a_gain,
+					WCD934X_CDC_ANC1_FF_A_GAIN_CTL);
 			snd_soc_update_bits(codec, WCD934X_ANA_HPH, 0x40, 0x00);
+		}
 		break;
 	case SND_SOC_DAPM_POST_PMD:
 		/*
@@ -2122,6 +2254,7 @@ static int tavil_codec_enable_hphr_pa(struct snd_soc_dapm_widget *w,
 			usleep_range(20000, 20100);
 		else
 			usleep_range(5000, 5100);
+		cancel_delayed_work_sync(&tavil->hph_anc_dwork.dwork);
 		tavil_codec_override(codec, tavil->hph_mode, event);
 		blocking_notifier_call_chain(&tavil->mbhc->notifier,
 					     WCD_EVENT_POST_HPHR_PA_OFF,
@@ -2245,6 +2378,8 @@ static int tavil_codec_enable_hphl_pa(struct snd_soc_dapm_widget *w,
 						    0x04, 0x00);
 			/* Remove ANC Rx from reset */
 			ret = tavil_codec_enable_anc(w, kcontrol, event);
+			schedule_delayed_work(&tavil->hph_anc_dwork.dwork,
+					msecs_to_jiffies(hph_anc_en_delay));
 		}
 		tavil_codec_override(codec, tavil->hph_mode, event);
 		break;
@@ -2263,9 +2398,17 @@ static int tavil_codec_enable_hphl_pa(struct snd_soc_dapm_widget *w,
 				    0x10, 0x10);
 		snd_soc_update_bits(codec, WCD934X_CDC_RX1_RX_PATH_MIX_CTL,
 				    0x10, 0x10);
-		if (!(strcmp(w->name, "ANC HPHL PA")))
+		if (!(strcmp(w->name, "ANC HPHL PA"))) {
+			snd_soc_update_bits(codec, WCD934X_CDC_RX2_RX_PATH_CTL,
+					0x10, 0x10);
+			snd_soc_update_bits(codec,
+					WCD934X_CDC_RX2_RX_PATH_MIX_CTL,
+					0x10, 0x10);
+			tavil_anc_ramp_down_anc_gain(codec, anc0_ff_a_gain,
+					WCD934X_CDC_ANC0_FF_A_GAIN_CTL);
 			snd_soc_update_bits(codec, WCD934X_ANA_HPH,
 					    0x80, 0x00);
+		}
 		break;
 	case SND_SOC_DAPM_POST_PMD:
 		/*
@@ -2276,6 +2419,7 @@ static int tavil_codec_enable_hphl_pa(struct snd_soc_dapm_widget *w,
 			usleep_range(20000, 20100);
 		else
 			usleep_range(5000, 5100);
+		cancel_delayed_work_sync(&tavil->hph_anc_dwork.dwork);
 		tavil_codec_override(codec, tavil->hph_mode, event);
 		blocking_notifier_call_chain(&tavil->mbhc->notifier,
 					     WCD_EVENT_POST_HPHL_PA_OFF,
@@ -2455,8 +2599,9 @@ static int tavil_codec_hphr_dac_event(struct snd_soc_dapm_widget *w,
 			     hph_mode);
 		if (tavil->anc_func)
 			snd_soc_update_bits(codec,
-					    WCD934X_CDC_RX2_RX_PATH_CFG0,
-					    0x10, 0x10);
+					WCD934X_CDC_RX2_RX_PATH_CFG0,
+					0x10, 0x10);
+
 		break;
 	case SND_SOC_DAPM_POST_PMD:
 		/* 1000us required as per HW requirement */
@@ -2536,11 +2681,6 @@ static int tavil_codec_hphl_dac_event(struct snd_soc_dapm_widget *w,
 			     WCD_CLSH_STATE_HPHL,
 			     hph_mode);
 
-		if (tavil->anc_func)
-			snd_soc_update_bits(codec,
-					    WCD934X_CDC_RX1_RX_PATH_CFG0,
-					    0x10, 0x10);
-
 		ret = tavil_mbhc_get_impedance(tavil->mbhc,
 					       &impedl, &impedr);
 		if (!ret) {
@@ -2551,6 +2691,10 @@ static int tavil_codec_hphl_dac_event(struct snd_soc_dapm_widget *w,
 				__func__, ret);
 			ret = 0;
 		}
+		if (tavil->anc_func)
+			snd_soc_update_bits(codec,
+					WCD934X_CDC_RX1_RX_PATH_CFG0,
+					0x10, 0x10);
 
 		break;
 	case SND_SOC_DAPM_POST_PMD:
@@ -2661,6 +2805,10 @@ static int __tavil_codec_enable_swr(struct snd_soc_dapm_widget *w, int event)
 
 	tavil = snd_soc_codec_get_drvdata(codec);
 
+/*HTC_AUD_START*/
+	if (!tavil->nr)
+		return 0;
+/*HTC_AUD_END*/
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
 		if (((strnstr(w->name, "INT7_", sizeof("RX INT7_"))) ||
@@ -4213,7 +4361,13 @@ static u32 tavil_get_dmic_sample_rate(struct snd_soc_codec *codec,
 	if (dec_found && adc_mux_index <= 8) {
 		tx_fs_reg = WCD934X_CDC_TX0_TX_PATH_CTL + (16 * adc_mux_index);
 		tx_stream_fs = snd_soc_read(codec, tx_fs_reg) & 0x0F;
+/* HTC_AUD_START */
+#if 0
 		if (tx_stream_fs <= 4)  {
+#else
+		if (tx_stream_fs <= 5)  {
+#endif
+/* HTC_AUD_END */
 			if (pdata->dmic_sample_rate <=
 					WCD9XXX_DMIC_SAMPLE_RATE_2P4MHZ)
 				dmic_fs = pdata->dmic_sample_rate;
@@ -4573,9 +4727,17 @@ int tavil_micbias_control(struct snd_soc_codec *codec,
 		break;
 	};
 
+/* HTC_AUD_START - debug purpose */
+#if 0
 	dev_dbg(codec->dev, "%s: micb_num:%d, micb_ref: %d, pullup_ref: %d\n",
 		__func__, micb_num, tavil->micb_ref[micb_index],
 		tavil->pullup_ref[micb_index]);
+#else
+	dev_info(codec->dev, "%s: micb_num:%d, micb_ref: %d, pullup_ref: %d\n",
+		__func__, micb_num, tavil->micb_ref[micb_index],
+		tavil->pullup_ref[micb_index]);
+#endif
+/* HTC_AUD_END */
 
 	mutex_unlock(&tavil->micb_lock);
 
@@ -8753,14 +8915,42 @@ static irqreturn_t tavil_slimbus_irq(int irq, void *data)
 		if (val & WCD934X_SLIM_IRQ_UNDERFLOW)
 			dev_err_ratelimited(tavil->dev, "%s: underflow error on %s port %d, value %x\n",
 			   __func__, (tx ? "TX" : "RX"), port_id, val);
+
+		if (tx) {
+			/* inc count */
+			if (val & WCD934X_SLIM_IRQ_OVERFLOW) {
+				tavil->slim_tx_of_uf_cnt[port_id]
+							[SB_PORT_ERR_OF]++;
+				dev_err_ratelimited(tavil->dev, "%s: tx port(%d) overflow cnt: %d\n",
+					__func__, port_id,
+					tavil->slim_tx_of_uf_cnt[port_id]
+							[SB_PORT_ERR_OF]);
+			}
+			if (val & WCD934X_SLIM_IRQ_UNDERFLOW) {
+				tavil->slim_tx_of_uf_cnt[port_id]
+							[SB_PORT_ERR_UF]++;
+				dev_err_ratelimited(tavil->dev, "%s: tx port(%d) underflow cnt: %d\n",
+						__func__, port_id,
+					tavil->slim_tx_of_uf_cnt[port_id]
+							[SB_PORT_ERR_UF]);
+			}
+
+		}
+
 		if ((val & WCD934X_SLIM_IRQ_OVERFLOW) ||
 			(val & WCD934X_SLIM_IRQ_UNDERFLOW)) {
 			if (!tx)
 				reg = WCD934X_SLIM_PGD_PORT_INT_RX_EN0 +
 					(port_id / 8);
-			else
+			else if ((tavil->slim_tx_of_uf_cnt[port_id]
+				[SB_PORT_ERR_OF] > SB_OF_UF_MAX_RETRY_CNT) ||
+				(tavil->slim_tx_of_uf_cnt[port_id]
+				[SB_PORT_ERR_UF] > SB_OF_UF_MAX_RETRY_CNT))
 				reg = WCD934X_SLIM_PGD_PORT_INT_TX_EN0 +
 					(port_id / 8);
+			else
+				goto skip_port_disable;
+
 			int_val = wcd9xxx_interface_reg_read(
 				tavil->wcd9xxx, reg);
 			if (int_val & (1 << (port_id % 8))) {
@@ -8769,6 +8959,7 @@ static irqreturn_t tavil_slimbus_irq(int irq, void *data)
 					reg, int_val);
 			}
 		}
+skip_port_disable:
 		if (val & WCD934X_SLIM_IRQ_PORT_CLOSED) {
 			/*
 			 * INT SOURCE register starts from RX to TX
@@ -9106,9 +9297,16 @@ static int tavil_device_down(struct wcd9xxx *wcd9xxx)
 
 	codec = (struct snd_soc_codec *)(wcd9xxx->ssr_priv);
 	priv = snd_soc_codec_get_drvdata(codec);
+
 	if (priv->swr.ctrl_data)
 		swrm_wcd_notify(priv->swr.ctrl_data[0].swr_pdev,
 				SWR_DEVICE_DOWN, NULL);
+
+/*HTC_AUD_START*/
+    if (priv->nr)
+		swrm_wcd_notify(priv->swr.ctrl_data[0].swr_pdev,
+				SWR_DEVICE_DOWN, NULL);
+/*HTC_AUD_END*/
 	tavil_dsd_reset(priv->dsd_config);
 	snd_soc_card_change_online_state(codec->component.card, 0);
 	for (count = 0; count < NUM_CODEC_DAIS; count++)
@@ -9332,6 +9530,10 @@ static int tavil_soc_codec_probe(struct snd_soc_codec *codec)
 	tavil->spk_anc_dwork.tavil = tavil;
 	INIT_DELAYED_WORK(&tavil->spk_anc_dwork.dwork,
 			  tavil_spk_anc_update_callback);
+
+	tavil->hph_anc_dwork.tavil = tavil;
+	INIT_DELAYED_WORK(&tavil->hph_anc_dwork.dwork,
+			  tavil_hph_anc_update_callback);
 
 	tavil_mclk2_reg_defaults(tavil);
 
@@ -9838,6 +10040,7 @@ static void tavil_add_child_devices(struct work_struct *work)
 			dev_dbg(&pdev->dev,
 				"%s: Added soundwire ctrl device(s)\n",
 				__func__);
+			tavil->nr = ctrl_num; /*HTC_AUD*/
 			tavil->swr.ctrl_data = swr_ctrl_data;
 		}
 	}
@@ -9943,6 +10146,16 @@ struct wcd_dsp_cntl *tavil_get_wcd_dsp_cntl(struct device *dev)
 	return tavil->wdsp_cntl;
 }
 EXPORT_SYMBOL(tavil_get_wcd_dsp_cntl);
+
+/* HTC_AUD_START - AS HS 2.0 */
+int tavil_get_headsetType(struct snd_soc_codec *codec)
+{
+	struct tavil_priv *tavil = snd_soc_codec_get_drvdata(codec);
+
+	return tavil_mbhc_get_hs_type(tavil->mbhc);
+}
+EXPORT_SYMBOL(tavil_get_headsetType);
+/* HTC_AUD_END */
 
 static int tavil_probe(struct platform_device *pdev)
 {

@@ -26,6 +26,9 @@
 #include <sound/asound.h>
 #include "msm-dts-srs-tm-config.h"
 #include <sound/adsp_err.h>
+/* HTC_AUD_START */
+#include <sound/htc_acoustic_alsa.h>
+/* HTC_AUD_END */
 
 #define TIMEOUT_MS 1000
 
@@ -260,6 +263,146 @@ static int adm_get_next_available_copp(int port_idx)
 	}
 	return idx;
 }
+
+/* HTC_AUD_START */
+struct htc_adm_effect_s {
+	int used;
+	uint32_t payload_size;
+	void *payload;
+};
+
+static struct htc_adm_effect_s htc_adm_effect[HTC_ADM_EFFECT_MAX];
+
+int q6adm_enable_effect(int port_id, int index, int copp_idx, int effect_idx) {
+	u8 *q6_cmd = NULL;
+	struct adm_cmd_set_pp_params_v5 *param;
+	int sz, rc = 0;
+
+	pr_info("%s: port id %i, copp idx %i, effect_idx = %d\n",
+				__func__, index, copp_idx, effect_idx);
+
+
+	sz = sizeof(struct adm_cmd_set_pp_params_v5) + htc_adm_effect[effect_idx].payload_size;
+	q6_cmd = kzalloc(sz, GFP_KERNEL);
+
+	if (!q6_cmd) {
+		pr_err("%s, adm params memory alloc failed", __func__);
+		return -ENOMEM;
+	}
+
+	memcpy(((u8 *)q6_cmd + sizeof(struct adm_cmd_set_pp_params_v5)),
+			htc_adm_effect[effect_idx].payload, htc_adm_effect[effect_idx].payload_size);
+
+	param = (struct adm_cmd_set_pp_params_v5 *)q6_cmd;
+
+	param->hdr.hdr_field = APR_HDR_FIELD(APR_MSG_TYPE_SEQ_CMD,
+				APR_HDR_LEN(APR_HDR_SIZE), APR_PKT_VER);
+	param->hdr.pkt_size = sz;
+	param->hdr.src_svc = APR_SVC_ADM;
+	param->hdr.src_domain = APR_DOMAIN_APPS;
+	param->hdr.src_port = port_id;
+	param->hdr.dest_svc = APR_SVC_ADM;
+	param->hdr.dest_domain = APR_DOMAIN_ADSP;
+	param->hdr.dest_port = atomic_read(&this_adm.copp.id[index][copp_idx]);
+	param->hdr.token = index << 16 | copp_idx;
+	param->hdr.opcode = ADM_CMD_SET_PP_PARAMS_V5;
+	param->payload_addr_lsw = 0;
+	param->payload_addr_msw = 0;
+	param->mem_map_handle = 0;
+	param->payload_size = htc_adm_effect[effect_idx].payload_size;
+
+	atomic_set(&this_adm.copp.stat[index][copp_idx], -1);
+	rc = apr_send_pkt(this_adm.apr, (uint32_t *)q6_cmd);
+	if (rc < 0) {
+		pr_err("%s: Set params failed port = %#x\n",
+			__func__, port_id);
+		rc = -EINVAL;
+		goto fail_cmd;
+	}
+	/* Wait for the callback */
+
+	rc = wait_event_timeout(this_adm.copp.wait[index][copp_idx],
+			atomic_read(&this_adm.copp.stat[index][copp_idx])>=0,
+			msecs_to_jiffies(TIMEOUT_MS));
+	if (!rc) {
+		pr_err("%s: Set params timed out port = %#x\n",
+			 __func__, port_id);
+		rc = -EINVAL;
+		goto fail_cmd;
+	}
+	rc = 0;
+fail_cmd:
+	kfree(q6_cmd);
+
+	return rc;
+}
+
+int htc_adm_set_by_topo(int port_id, int port_idx, int effect_idx, int topology)
+{
+	int copp_idx;
+
+	for (copp_idx = 0; copp_idx < MAX_COPPS_PER_PORT; copp_idx++)
+	{
+		if (topology == atomic_read(&this_adm.copp.topology[port_idx][copp_idx]))
+			q6adm_enable_effect(port_id, port_idx, copp_idx, effect_idx);
+	}
+	return -EINVAL;
+}
+
+int htc_adm_effect_enable(int port_id, int copp_idx, int effect_id)
+{
+	int port_idx, effect_idx;
+	port_id = afe_convert_virtual_to_portid(port_id);
+	port_idx = adm_validate_and_get_port_index(port_id);
+
+	if (port_idx < 0 || port_idx >= AFE_MAX_PORTS) {
+		pr_err("%s: invalid port idx %d portid %#x\n",
+			__func__, port_idx, port_id);
+		return -EINVAL;
+	}
+
+
+	if (effect_id >= 0 && effect_id < HTC_ADM_EFFECT_MAX) {
+		htc_adm_set_by_topo(port_id, port_idx, effect_id, htc_effect_index[effect_id].topology_id);
+	} else if (copp_idx >= 0 && copp_idx < MAX_COPPS_PER_PORT) {
+		for (effect_idx = 0; effect_idx < HTC_ADM_EFFECT_MAX; effect_idx++) {
+			if ((htc_effect_index[effect_idx].topology_id == atomic_read(&this_adm.copp.topology[port_idx][copp_idx]))
+				&&(htc_adm_effect[effect_idx].used == 1)) {
+				q6adm_enable_effect(port_id, port_idx, copp_idx, effect_idx);
+			}
+		}
+	} else	{
+		pr_err("%s: Invalid copp idx %d or effect_id %d\n", __func__, copp_idx, effect_id);
+		return -EINVAL;
+	}
+	return 0;
+}
+
+int htc_adm_set_payload(int effect_id, uint32_t payload_size, void *payload)
+{
+	if (htc_adm_effect[effect_id].used) {
+		kfree(htc_adm_effect[effect_id].payload);
+		htc_adm_effect[effect_id].used = 0;
+	}
+
+	htc_adm_effect[effect_id].payload = kzalloc(payload_size, GFP_KERNEL);
+	if (htc_adm_effect[effect_id].payload) {
+		memcpy(htc_adm_effect[effect_id].payload, payload, payload_size);
+		htc_adm_effect[effect_id].payload_size = payload_size;
+		htc_adm_effect[effect_id].used = 1;
+	}
+
+	return htc_adm_effect_enable(htc_effect_index[effect_id].port_id, -1, effect_id);
+}
+
+void* htc_adm_get_payload(int effect_id)
+{
+	if (htc_adm_effect[effect_id].payload && (htc_adm_effect[effect_id].used != 0)) {
+		return htc_adm_effect[effect_id].payload;
+	}
+	return NULL;
+}
+/* HTC_AUD_END */
 
 int srs_trumedia_open(int port_id, int copp_idx, __s32 srs_tech_id,
 		      void *srs_params)
@@ -1440,6 +1583,11 @@ static int adm_memory_map_regions(phys_addr_t *buf_add, uint32_t mempool_id,
 	if (!ret) {
 		pr_err("%s: timeout. waited for memory_map\n", __func__);
 		ret = -EINVAL;
+/* HTC_AUD_START */
+#ifdef CONFIG_HTC_DEBUG_DSP
+		BUG();
+#endif
+/* HTC_AUD_END */
 		goto fail_cmd;
 	} else if (atomic_read(&this_adm.adm_stat) > 0) {
 		pr_err("%s: DSP returned error[%s]\n",
@@ -1490,6 +1638,11 @@ static int adm_memory_unmap_regions(void)
 	if (!ret) {
 		pr_err("%s: timeout. waited for memory_unmap\n",
 		       __func__);
+/* HTC_AUD_START */
+#ifdef CONFIG_HTC_DEBUG_DSP
+		BUG();
+#endif
+/* HTC_AUD_END */
 		ret = -EINVAL;
 		goto fail_cmd;
 	} else if (atomic_read(&this_adm.adm_stat) > 0) {
@@ -2117,9 +2270,11 @@ int adm_open(int port_id, int path, int rate, int channel_mode, int topology,
 	int port_idx, copp_idx, flags;
 	int tmp_port = q6audio_get_port_id(port_id);
 
-	pr_debug("%s:port %#x path:%d rate:%d mode:%d perf_mode:%d,topo_id %d\n",
+/* HTC_AUD_START - Add log */
+	pr_info("%s:port %#x path:%d rate:%d mode:%d perf_mode:%d,topo_id %d\n",
 		 __func__, port_id, path, rate, channel_mode, perf_mode,
 		 topology);
+/* HTC_AUD_END */
 
 	port_id = q6audio_convert_virtual_to_portid(port_id);
 	port_idx = adm_validate_and_get_port_index(port_id);
@@ -2318,6 +2473,11 @@ int adm_open(int port_id, int path, int rate, int channel_mode, int topology,
 		if (!ret) {
 			pr_err("%s: ADM open timedout for port_id: 0x%x for [0x%x]\n",
 						__func__, tmp_port, port_id);
+/* HTC_AUD_START */
+#ifdef CONFIG_HTC_DEBUG_DSP
+			BUG();
+#endif
+/* HTC_AUD_END */
 			return -EINVAL;
 		} else if (atomic_read(&this_adm.copp.stat
 					[port_idx][copp_idx]) > 0) {
@@ -2331,6 +2491,11 @@ int adm_open(int port_id, int path, int rate, int channel_mode, int topology,
 		}
 	}
 	atomic_inc(&this_adm.copp.cnt[port_idx][copp_idx]);
+
+/* HTC_AUD_START - set effect */
+	htc_adm_effect_enable(port_id, copp_idx, -1);
+/* HTC_AUD_END */
+
 	return copp_idx;
 }
 
@@ -2635,8 +2800,10 @@ int adm_close(int port_id, int perf_mode, int copp_idx)
 	int ret = 0, port_idx;
 	int copp_id = RESET_COPP_ID;
 
-	pr_debug("%s: port_id=0x%x perf_mode: %d copp_idx: %d\n", __func__,
+/* HTC_AUD_START - Add log */
+	pr_info("%s: port_id=0x%x perf_mode: %d copp_idx: %d\n", __func__,
 		 port_id, perf_mode, copp_idx);
+/* HTC_AUD_END */
 
 	port_id = q6audio_convert_virtual_to_portid(port_id);
 	port_idx = adm_validate_and_get_port_index(port_id);
@@ -2742,6 +2909,11 @@ int adm_close(int port_id, int perf_mode, int copp_idx)
 		if (!ret) {
 			pr_err("%s: ADM cmd Route timedout for port 0x%x\n",
 				__func__, port_id);
+/* HTC_AUD_START */
+#ifdef CONFIG_HTC_DEBUG_DSP
+			BUG();
+#endif
+/* HTC_AUD_END */
 			return -EINVAL;
 		} else if (atomic_read(&this_adm.copp.stat
 					[port_idx][copp_idx]) > 0) {

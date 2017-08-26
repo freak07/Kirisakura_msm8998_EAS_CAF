@@ -420,11 +420,19 @@ static int wdsp_download_segments(struct wdsp_mgr_priv *wdsp,
 
 	WDSP_SET_STATUS(wdsp, status);
 
+/* HTC_AUD_START */
+#if 0
 	/* Notify all components that image is downloaded */
 	wdsp_broadcast_event_downseq(wdsp, post, NULL);
+#endif
+/* HTC_AUD_END */
 
 dload_error:
 	wdsp_flush_segment_list(wdsp->seg_list);
+/* HTC_AUD_START - Notify download done at here to avoid memory corruption on wdsp->seg_list */
+	if (!IS_ERR_VALUE(ret))
+		wdsp_broadcast_event_downseq(wdsp, post, NULL);
+/* HTC_AUD_END */
 done:
 	return ret;
 }
