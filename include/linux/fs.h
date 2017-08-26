@@ -73,6 +73,10 @@ typedef void (dio_iodone_t)(struct kiocb *iocb, loff_t offset,
 			ssize_t bytes, void *private);
 typedef void (dax_iodone_t)(struct buffer_head *bh_map, int uptodate);
 
+#define BYPASS_RULE1 0x6c
+#define BYPASS_RULE2 0x6d
+#define BYPASS_RULE3 0x78
+
 #define MAY_EXEC		0x00000001
 #define MAY_WRITE		0x00000002
 #define MAY_READ		0x00000004
@@ -137,6 +141,9 @@ typedef void (dax_iodone_t)(struct buffer_head *bh_map, int uptodate);
 #define FMODE_CAN_READ          ((__force fmode_t)0x20000)
 /* Has write method(s) */
 #define FMODE_CAN_WRITE         ((__force fmode_t)0x40000)
+
+/* File hasn't page cache and can't be mmaped, for stackable filesystem */
+#define FMODE_NONMAPPABLE       ((__force fmode_t)0x400000)
 
 /* File was opened by fanotify and shouldn't generate fanotify events */
 #define FMODE_NONOTIFY		((__force fmode_t)0x4000000)
@@ -584,6 +591,9 @@ struct posix_acl;
 #define IOP_FASTPERM	0x0001
 #define IOP_LOOKUP	0x0002
 #define IOP_NOFOLLOW	0x0004
+
+#define AID_SDCARD_RW 1015
+#define AID_SDCARD_R  1028
 
 /*
  * Keep mostly read-only and often accessed (especially for
@@ -1394,6 +1404,10 @@ struct super_block {
 	/* Being remounted read-only */
 	int s_readonly_remount;
 
+	/* async-fsync */
+#define FLAG_ASYNC_FSYNC       0x1
+	unsigned int fsync_flags;
+
 	/* AIO completions deferred from interrupt context */
 	struct workqueue_struct *s_dio_done_wq;
 	struct hlist_head s_pins;
@@ -1673,6 +1687,8 @@ struct file_operations {
 #ifndef CONFIG_MMU
 	unsigned (*mmap_capabilities)(struct file *);
 #endif
+	/* get_lower_file is for stackable file system */
+	struct file* (*get_lower_file)(struct file *f);
 };
 
 struct inode_operations {

@@ -2421,6 +2421,12 @@ static int do_new_mount(struct path *path, const char *fstype, int flags,
 	err = do_add_mount(real_mount(mnt), path, mnt_flags);
 	if (err)
 		mntput(mnt);
+
+	/* Async-fsync */
+	if (!err && !strcmp(fstype, "ext4") &&
+	    !strcmp(path->dentry->d_name.name, "data"))
+		mnt->mnt_sb->fsync_flags |= FLAG_ASYNC_FSYNC;
+
 	return err;
 }
 
@@ -3141,6 +3147,7 @@ void __init mnt_init(void)
 	fs_kobj = kobject_create_and_add("fs", NULL);
 	if (!fs_kobj)
 		printk(KERN_WARNING "%s: kobj create error\n", __func__);
+
 	init_rootfs();
 	init_mount_tree();
 }
