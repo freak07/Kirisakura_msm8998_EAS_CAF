@@ -130,46 +130,6 @@ static int wdsp_glink_close_ch(struct wdsp_glink_ch *ch);
 static int wdsp_glink_open_ch(struct wdsp_glink_ch *ch);
 
 /*
- * wdsp_glink_free_tx_buf_work - Work function to free tx pkt
- * work:      Work structure
- */
-static void wdsp_glink_free_tx_buf_work(struct work_struct *work)
-{
-	struct wdsp_glink_tx_buf *tx_buf;
-
-	tx_buf = container_of(work, struct wdsp_glink_tx_buf,
-			      free_tx_work);
-	vfree(tx_buf);
-}
-
-/*
- * wdsp_glink_free_tx_buf - Function to free tx buffer
- * priv:        Pointer to the channel
- * pkt_priv:    Pointer to the tx buffer
- */
-static void wdsp_glink_free_tx_buf(const void *priv, const void *pkt_priv)
-{
-	struct wdsp_glink_tx_buf *tx_buf = (struct wdsp_glink_tx_buf *)pkt_priv;
-	struct wdsp_glink_priv *wpriv;
-	struct wdsp_glink_ch *ch;
-
-	if (!priv) {
-		pr_err("%s: Invalid priv\n", __func__);
-		return;
-	}
-	if (!tx_buf) {
-		pr_err("%s: Invalid tx_buf\n", __func__);
-		return;
-	}
-
-	ch = (struct wdsp_glink_ch *)priv;
-	wpriv = ch->wpriv;
-	/* Work queue to free tx pkt */
-	INIT_WORK(&tx_buf->free_tx_work, wdsp_glink_free_tx_buf_work);
-	queue_work(wpriv->work_queue, &tx_buf->free_tx_work);
-}
-
-/*
  * wdsp_glink_notify_rx - Glink notify rx callback for responses
  * handle:      Opaque Channel handle returned by GLink
  * priv:        Private pointer to the channel
