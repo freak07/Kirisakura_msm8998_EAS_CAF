@@ -11,6 +11,8 @@
 #include <linux/swap.h>
 #include <linux/vmstat.h>
 #include <linux/atomic.h>
+#include <linux/msm_ion.h>
+#include <linux/msm_kgsl.h>
 #include <linux/vmalloc.h>
 #ifdef CONFIG_CMA
 #include <linux/cma.h>
@@ -21,6 +23,15 @@
 
 void __attribute__((weak)) arch_report_meminfo(struct seq_file *m)
 {
+}
+
+static inline unsigned long free_cma_pages(void)
+{
+#ifdef CONFIG_CMA
+	return global_page_state(NR_FREE_CMA_PAGES);
+#else
+	return 0UL;
+#endif
 }
 
 static int meminfo_proc_show(struct seq_file *m, void *v)
