@@ -979,6 +979,7 @@ static struct clk_rcg2 esc0_clk_src = {
 	.mnd_width = 0,
 	.hid_width = 5,
 	.parent_map = mmcc_parent_map_1,
+	.freq_tbl = ftbl_dp_aux_clk_src,
 	.clkr.hw.init = &(struct clk_init_data){
 		.name = "esc0_clk_src",
 		.parent_names = mmcc_parent_names_1,
