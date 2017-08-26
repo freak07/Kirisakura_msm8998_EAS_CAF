@@ -38,6 +38,10 @@ static irqreturn_t mmc_gpio_cd_irqt(int irq, void *dev_id)
 	host->trigger_card_event = true;
 	mmc_detect_change(host, msecs_to_jiffies(200));
 
+	host->removed_cnt = 0;
+	/* Recover Host capabilities */
+	host->caps |= host->caps_uhs;
+
 	return IRQ_HANDLED;
 }
 

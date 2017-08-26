@@ -153,6 +153,7 @@ struct sdhci_msm_pltfm_data {
 	u32 ice_clk_min;
 	struct sdhci_msm_pm_qos_data pm_qos_data;
 	bool core_3_0v_support;
+	int slot_type;
 	bool sdr104_wa;
 };
 
@@ -219,6 +220,7 @@ struct sdhci_msm_host {
 	bool tuning_in_progress;
 	bool mci_removed;
 	const struct sdhci_msm_offset *offset;
+	struct proc_dir_entry	*speed_class;
 	bool pltfm_init_done;
 };
 
