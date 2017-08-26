@@ -356,6 +356,7 @@ struct mmc_card {
 #define MMC_TYPE_SD		1		/* SD card */
 #define MMC_TYPE_SDIO		2		/* SDIO card */
 #define MMC_TYPE_SD_COMBO	3		/* SD combo (IO+mem) card */
+#define MMC_TYPE_NA		0xFF		/* Unknown type */
 	unsigned int		state;		/* (our) card state */
 #define MMC_STATE_PRESENT	(1<<0)		/* present in sysfs */
 #define MMC_STATE_READONLY	(1<<1)		/* card is read-only */
@@ -422,6 +423,7 @@ struct mmc_card {
 
 	unsigned int		sd_bus_speed;	/* Bus Speed Mode set for the card */
 	unsigned int		mmc_avail_type;	/* supported device type by both host and card */
+	int                     force_remove;   /* force removing card */
 	unsigned int		drive_strength;	/* for UHS-I, HS200 or HS400 */
 
 	struct dentry		*debugfs_root;
@@ -437,6 +439,7 @@ struct mmc_card {
 	struct mmc_bkops_info bkops;
 	bool err_in_sdr104;
 	bool sdr104_blocked;
+	unsigned char   speed_class;		/* SD card class level */
 };
 
 /*
