@@ -220,11 +220,19 @@ struct msm_ois_set_info_t32 {
 	struct msm_ois_params_t32 ois_params;
 };
 
+//HTC_START
+struct ois_behavior_data32 {
+	struct compat_timeval timestamp;
+	uint32_t data;
+};
+//HTC_END
+
 struct msm_ois_cfg_data32 {
 	int cfgtype;
 	union {
 		struct msm_ois_set_info_t32 set_info;
 		compat_uptr_t settings;
+		struct ois_behavior_data32 behavior; //HTC_ADD
 	} cfg;
 };
 
