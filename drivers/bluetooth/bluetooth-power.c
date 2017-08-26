@@ -704,6 +704,9 @@ static long bt_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		} else {
 			BT_PWR_ERR("BT chip state is already :%d no change d\n"
 				, pwr_state);
+			// [HTC_BT] +++
+			return -EINVAL;
+			// [HTC_BT] ---
 		}
 		break;
 	default:
