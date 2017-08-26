@@ -838,6 +838,8 @@ struct vfe_device {
 	uint32_t bus_err_ign_mask;
 	uint32_t recovery_irq0_mask;
 	uint32_t recovery_irq1_mask;
+	/* Store the buf_idx for pd stats RDI stream */
+	uint8_t pd_buf_idx;
 	/* total bandwidth per vfe */
 	uint64_t total_bandwidth;
 };

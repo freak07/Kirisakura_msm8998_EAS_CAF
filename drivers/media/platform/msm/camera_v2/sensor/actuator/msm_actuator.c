@@ -48,6 +48,39 @@ static struct msm_actuator *actuators[] = {
 	&msm_bivcm_actuator_table,
 };
 
+//HTC_START, AF FW update
+static struct msm_camera_i2c_reg_array lc898214xd_fw_setting[] = {
+{0x42, 0x02, 0x00},
+{0x43, 0x90, 0x00},
+{0x44, 0x7A, 0x00},
+{0x48, 0x40, 0x00},
+{0x49, 0x30, 0x00},
+{0x4C, 0x8C, 0x00},
+{0x4D, 0xB0, 0x00},
+{0x4E, 0x73, 0x00},
+{0x4F, 0xF0, 0x00},
+{0x50, 0x67, 0x00},
+{0x51, 0x30, 0x00},
+{0x52, 0x2D, 0x00},
+{0x53, 0x70, 0x00},
+{0x58, 0x39, 0x00},
+{0x59, 0x30, 0x00},
+{0x5A, 0xC6, 0x00},
+{0x5B, 0xD5, 0x00},
+{0x60, 0x04, 0x00},
+{0x61, 0xA0, 0x00},
+{0x62, 0x76, 0x00},
+{0x63, 0xB0, 0x00},
+{0x6E, 0x40, 0x00},
+{0x6F, 0x30, 0x00},
+{0x54, 0x1B, 0x00},
+{0x1E, 0x00, 0x00},
+{0x1A, 0x30, 0x00},
+{0x2D, 0x60, 0x00},
+{0x2F, 0x78, 0x00},
+};
+//HTC_END
+
 static int32_t msm_actuator_piezo_set_default_focus(
 	struct msm_actuator_ctrl_t *a_ctrl,
 	struct msm_actuator_move_params_t *move_params)
@@ -353,6 +386,69 @@ static int msm_actuator_bivcm_handle_i2c_ops(
 	return rc;
 }
 
+//HTC_START, AF FW update
+#define AF_EEPROM_I2C_ADDR_WRITE 0xE6
+static void msm_actuator_fw_update(struct msm_actuator_ctrl_t *a_ctrl)
+{
+	int32_t rc = 0;
+	int32_t i = 0;
+	uint16_t reg_data = 0, reg_data2 = 0, reg_data3 = 0;
+	uint16_t cci_client_sid_backup;
+
+	//Validate fw version and judge if need to update FW
+	cci_client_sid_backup = a_ctrl->i2c_client.cci_client->sid;
+	a_ctrl->i2c_client.cci_client->sid = AF_EEPROM_I2C_ADDR_WRITE >> 1;
+	rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client, 0x2F, &reg_data, MSM_CAMERA_I2C_BYTE_DATA);
+	rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client, 0x42, &reg_data2, MSM_CAMERA_I2C_BYTE_DATA);
+	rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_read(&a_ctrl->i2c_client, 0x54, &reg_data3, MSM_CAMERA_I2C_BYTE_DATA);
+	a_ctrl->i2c_client.cci_client->sid = cci_client_sid_backup;
+	if(reg_data == 0x78 && reg_data2 == 0x02 && reg_data3 == 0x1B)
+	{
+		pr_err("%s: No need to update AF FW\n", __func__);
+	}
+	else	//need to update AF FW
+	{
+		pr_err("%s: Update AF FW...\n", __func__);
+		a_ctrl->i2c_client.i2c_func_tbl->i2c_write(&a_ctrl->i2c_client, 0x84, 0x0, MSM_CAMERA_I2C_BYTE_DATA);
+		a_ctrl->i2c_client.i2c_func_tbl->i2c_write(&a_ctrl->i2c_client, 0x87, 0x0, MSM_CAMERA_I2C_BYTE_DATA);
+		a_ctrl->i2c_client.i2c_func_tbl->i2c_write(&a_ctrl->i2c_client, 0x8E, 0x0, MSM_CAMERA_I2C_BYTE_DATA);
+		usleep_range(10000, 11000);
+		a_ctrl->i2c_client.i2c_func_tbl->i2c_write(&a_ctrl->i2c_client, 0x9C, 0xAF, MSM_CAMERA_I2C_BYTE_DATA);
+		a_ctrl->i2c_client.i2c_func_tbl->i2c_write(&a_ctrl->i2c_client, 0x9D, 0x80, MSM_CAMERA_I2C_BYTE_DATA);
+
+		/* Bcakup the I2C slave address */
+		cci_client_sid_backup = a_ctrl->i2c_client.cci_client->sid;
+		/* Replace the I2C slave address with AF EEPROM */
+		a_ctrl->i2c_client.cci_client->sid = AF_EEPROM_I2C_ADDR_WRITE >> 1;
+		for (i = 0; i < ARRAY_SIZE(lc898214xd_fw_setting); i++)
+		{
+			a_ctrl->i2c_client.i2c_func_tbl->i2c_write(&a_ctrl->i2c_client, lc898214xd_fw_setting[i].reg_addr, lc898214xd_fw_setting[i].reg_data, MSM_CAMERA_I2C_BYTE_DATA);
+			usleep_range(3000, 4000);
+			rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_poll(&a_ctrl->i2c_client, 0xED, 0x0, MSM_CAMERA_I2C_BYTE_DATA,10);	//wait 10ms
+			if (rc < 0) {
+				pr_err("%s: i2c poll failed after wrtie 0x%x\n", __func__, lc898214xd_fw_setting[i].reg_addr);
+				return;
+			}
+		}
+
+		/* Restore the I2C slave address */
+		a_ctrl->i2c_client.cci_client->sid = cci_client_sid_backup;
+		a_ctrl->i2c_client.i2c_func_tbl->i2c_write(&a_ctrl->i2c_client, 0x9C, 0x0, MSM_CAMERA_I2C_BYTE_DATA);
+		a_ctrl->i2c_client.i2c_func_tbl->i2c_write(&a_ctrl->i2c_client, 0x9D, 0x0, MSM_CAMERA_I2C_BYTE_DATA);
+		a_ctrl->i2c_client.i2c_func_tbl->i2c_write(&a_ctrl->i2c_client, 0x87, 0x0, MSM_CAMERA_I2C_BYTE_DATA);
+		a_ctrl->i2c_client.i2c_func_tbl->i2c_write(&a_ctrl->i2c_client, 0xE0, 0x01, MSM_CAMERA_I2C_BYTE_DATA);
+		rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_poll(&a_ctrl->i2c_client, 0xE0, 0x0, MSM_CAMERA_I2C_BYTE_DATA,10);	//wait 10ms
+		if (rc < 0) {
+			pr_err("%s: i2c poll failed after wrtie 0xE0\n", __func__);
+			return;
+		}
+
+		pr_err("%s: Update AF FW successfully\n", __func__);
+	}
+	return;
+}
+//HTC_END
+
 static int32_t msm_actuator_init_focus(struct msm_actuator_ctrl_t *a_ctrl,
 	uint16_t size, struct reg_settings_t *settings)
 {
@@ -360,6 +456,9 @@ static int32_t msm_actuator_init_focus(struct msm_actuator_ctrl_t *a_ctrl,
 	int32_t i = 0;
 	enum msm_camera_i2c_reg_addr_type save_addr_type;
 	CDBG("Enter\n");
+	//HTC_START, AF FW update
+	msm_actuator_fw_update(a_ctrl);
+	//HTC_END
 
 	save_addr_type = a_ctrl->i2c_client.addr_type;
 	for (i = 0; i < size; i++) {
@@ -456,6 +555,67 @@ static void msm_actuator_write_focus(
 	}
 	CDBG("Exit\n");
 }
+
+/*HTC_START, OIS gain*/
+#ifdef CONFIG_OIS_LC898123F40_4AXIS
+#define OIS_COMPONENT_I2C_ADDR_WRITE 0x7C
+
+int vcm_RamWrite32A(struct msm_actuator_ctrl_t *a_ctrl, unsigned short RamAddr, unsigned int RamData)
+{
+	//Add 32 bit I2C writing function
+	int rc = 0;
+	uint8_t data[4] = {0,0,0,0};
+	uint16_t cci_client_sid_backup;
+	enum msm_camera_i2c_reg_addr_type addr_type_backup;
+
+	/* Backup the I2C info */
+	cci_client_sid_backup = a_ctrl->i2c_client.cci_client->sid;
+	addr_type_backup = a_ctrl->i2c_client.addr_type;
+
+	/* Replace the I2C slave address with OIS component */
+	a_ctrl->i2c_client.cci_client->sid = OIS_COMPONENT_I2C_ADDR_WRITE >> 1;
+	a_ctrl->i2c_client.addr_type = MSM_CAMERA_I2C_WORD_ADDR;
+
+	data[0] = (RamData >> 24) & 0xFF;
+	data[1] = (RamData >> 16) & 0xFF;
+	data[2] = (RamData >> 8)  & 0xFF;
+	data[3] = (RamData) & 0xFF;
+
+	rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_write_seq(
+		&a_ctrl->i2c_client, RamAddr, &data[0], 4);
+
+	/* Restore the I2C slave info */
+	a_ctrl->i2c_client.cci_client->sid = cci_client_sid_backup;
+	a_ctrl->i2c_client.addr_type = addr_type_backup;
+
+	if (rc < 0)
+		pr_err("[CAM_VCM][OIS] %s : write failed\n", __func__);
+
+	return rc;
+}
+
+static int32_t htc_ois_gyro_gain_write(struct msm_actuator_ctrl_t *a_ctrl, uint32_t ois_gain)
+{
+	int32_t rc = 0;
+	CDBG("[CAM_VCM][OIS] %s : E gyro_gain %x \n", __func__, ois_gain);
+	rc = vcm_RamWrite32A( a_ctrl, 0x82CC , ois_gain );
+	rc = vcm_RamWrite32A( a_ctrl, 0x832C , ois_gain );
+	CDBG("[CAM_VCM][OIS] %s : X rc = %d \n", __func__, rc);
+
+	return rc;
+}
+
+static int32_t htc_ois_ssc_gain_write(struct msm_actuator_ctrl_t *a_ctrl, uint32_t ois_gain)
+{
+	int32_t rc = 0;
+	CDBG("[CAM_VCM][OIS] %s : E ssc_gain %x \n", __func__, ois_gain);
+	rc = vcm_RamWrite32A( a_ctrl, 0x8780 , ois_gain );
+	CDBG("[CAM_VCM][OIS] %s : X rc = %d \n", __func__, rc);
+
+	return rc;
+}
+#endif
+/*HTC_END*/
 
 static int msm_actuator_bivcm_write_focus(
 	struct msm_actuator_ctrl_t *a_ctrl,
@@ -1470,6 +1630,25 @@ static int32_t msm_actuator_config(struct msm_actuator_ctrl_t *a_ctrl,
 		if (rc < 0)
 			pr_err("Failed actuator power up%d\n", rc);
 		break;
+/*HTC_START, OIS gain*/
+#ifdef CONFIG_OIS_LC898123F40_4AXIS
+	case CFG_ACTUATOR_OIS_GYRO_GAIN:
+		rc = htc_ois_gyro_gain_write(a_ctrl, cdata->cfg.move.num_steps);
+		if (rc < 0)
+			pr_err("Failed write CFG_ACTUATOR_OIS_GYRO_GAIN %d\n", rc);
+		break;
+	case CFG_ACTUATOR_OIS_SSC_GAIN:
+		rc = htc_ois_ssc_gain_write(a_ctrl, cdata->cfg.move.num_steps);
+		if (rc < 0)
+			pr_err("Failed write CFG_ACTUATOR_OIS_SSC_GAIN %d\n", rc);
+		break;
+#else
+	case CFG_OIS_GYRO_GAIN_WRITE:
+	case CFG_OIS_SSC_GAIN_WRITE:
+		rc = 0;
+		break;
+#endif
+/*HTC_END*/
 
 	default:
 		break;
@@ -1506,6 +1685,9 @@ static struct msm_camera_i2c_fn_t msm_sensor_cci_func_tbl = {
 	.i2c_write_seq_table = msm_camera_cci_i2c_write_seq_table,
 	.i2c_write_table_w_microdelay =
 		msm_camera_cci_i2c_write_table_w_microdelay,
+//HTC_START
+	.i2c_write_seq = msm_camera_cci_i2c_write_seq,
+//HTC_END
 	.i2c_util = msm_sensor_cci_i2c_util,
 	.i2c_poll =  msm_camera_cci_i2c_poll,
 };
@@ -1699,6 +1881,16 @@ static long msm_actuator_subdev_do_ioctl(
 			memcpy(&actuator_data.cfg.setpos, &(u32->cfg.setpos),
 				sizeof(struct msm_actuator_set_position_t));
 			break;
+		/*HTC_START, OIS gain*/
+		case CFG_ACTUATOR_OIS_GYRO_GAIN:
+		case CFG_ACTUATOR_OIS_SSC_GAIN:
+#ifdef CONFIG_OIS_LC898123F40_4AXIS
+			actuator_data.cfgtype = u32->cfgtype;
+			actuator_data.cfg.move.num_steps = u32->cfg.move.num_steps;
+			parg = &actuator_data;
+#endif
+			break;
+		/*HTC_END*/
 		default:
 			actuator_data.cfgtype = u32->cfgtype;
 			parg = &actuator_data;
