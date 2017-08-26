@@ -650,4 +650,11 @@ int q6asm_get_path_delay(struct audio_client *ac);
 uint8_t q6asm_get_buf_index_from_token(uint32_t token);
 uint8_t q6asm_get_stream_id_from_token(uint32_t token);
 
+/* HTC_AUD_START */
+int htc_set_asm_effect(int enable);
+int q6asm_enable_effect(struct audio_client *ac, uint32_t module_id,
+			uint32_t param_id, uint32_t payload_size,
+			void *payload);
+/* HTC_AUD_END */
+
 #endif /* __Q6_ASM_H__ */
