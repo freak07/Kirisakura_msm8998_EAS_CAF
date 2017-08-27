@@ -225,8 +225,8 @@ static int __ffs_ep0_queue_wait(struct ffs_data *ffs, char *data, size_t len)
 
 	spin_unlock_irq(&ffs->ev.waitq.lock);
 
-	ffs_log("enter: state %d setup_state %d flags %lu", ffs->state,
-		ffs->setup_state, ffs->flags);
+	//ffs_log("enter: state %d setup_state %d flags %lu", ffs->state,
+	//	ffs->setup_state, ffs->flags);
 
 	req->buf      = data;
 	req->length   = len;
@@ -253,16 +253,16 @@ static int __ffs_ep0_queue_wait(struct ffs_data *ffs, char *data, size_t len)
 
 	ffs->setup_state = FFS_NO_SETUP;
 
-	ffs_log("exit: state %d setup_state %d flags %lu", ffs->state,
-		ffs->setup_state, ffs->flags);
+	//ffs_log("exit: state %d setup_state %d flags %lu", ffs->state,
+	//	ffs->setup_state, ffs->flags);
 
 	return req->status ? req->status : req->actual;
 }
 
 static int __ffs_ep0_stall(struct ffs_data *ffs)
 {
-	ffs_log("state %d setup_state %d flags %lu can_stall %d", ffs->state,
-		ffs->setup_state, ffs->flags, ffs->ev.can_stall);
+	//ffs_log("state %d setup_state %d flags %lu can_stall %d", ffs->state,
+	//	ffs->setup_state, ffs->flags, ffs->ev.can_stall);
 
 	if (ffs->ev.can_stall) {
 		pr_vdebug("ep0 stall\n");
@@ -284,8 +284,8 @@ static ssize_t ffs_ep0_write(struct file *file, const char __user *buf,
 
 	ENTER();
 
-	ffs_log("enter:len %zu state %d setup_state %d flags %lu", len,
-		ffs->state, ffs->setup_state, ffs->flags);
+	//ffs_log("enter:len %zu state %d setup_state %d flags %lu", len,
+	//	ffs->state, ffs->setup_state, ffs->flags);
 
 	/* Fast check if setup was canceled */
 	if (ffs_setup_state_clear_cancelled(ffs) == FFS_SETUP_CANCELLED)
@@ -415,8 +415,8 @@ done_spin:
 		break;
 	}
 
-	ffs_log("exit:ret %zu state %d setup_state %d flags %lu", ret,
-		ffs->state, ffs->setup_state, ffs->flags);
+	//ffs_log("exit:ret %zu state %d setup_state %d flags %lu", ret,
+	//	ffs->state, ffs->setup_state, ffs->flags);
 
 	mutex_unlock(&ffs->mutex);
 	return ret;
@@ -452,8 +452,8 @@ static ssize_t __ffs_ep0_read_events(struct ffs_data *ffs, char __user *buf,
 
 	spin_unlock_irq(&ffs->ev.waitq.lock);
 
-	ffs_log("state %d setup_state %d flags %lu #evt %zu", ffs->state,
-		ffs->setup_state, ffs->flags, n);
+	//ffs_log("state %d setup_state %d flags %lu #evt %zu", ffs->state,
+	//	ffs->setup_state, ffs->flags, n);
 
 	mutex_unlock(&ffs->mutex);
 
@@ -470,8 +470,8 @@ static ssize_t ffs_ep0_read(struct file *file, char __user *buf,
 
 	ENTER();
 
-	ffs_log("enter:len %zu state %d setup_state %d flags %lu", len,
-		ffs->state, ffs->setup_state, ffs->flags);
+	//ffs_log("enter:len %zu state %d setup_state %d flags %lu", len,
+	//	ffs->state, ffs->setup_state, ffs->flags);
 
 	/* Fast check if setup was canceled */
 	if (ffs_setup_state_clear_cancelled(ffs) == FFS_SETUP_CANCELLED)
@@ -561,8 +561,8 @@ static ssize_t ffs_ep0_read(struct file *file, char __user *buf,
 
 	spin_unlock_irq(&ffs->ev.waitq.lock);
 done_mutex:
-	ffs_log("exit:ret %d state %d setup_state %d flags %lu", ret,
-		ffs->state, ffs->setup_state, ffs->flags);
+	//ffs_log("exit:ret %d state %d setup_state %d flags %lu", ret,
+	//	ffs->state, ffs->setup_state, ffs->flags);
 
 	mutex_unlock(&ffs->mutex);
 	kfree(data);
@@ -576,8 +576,8 @@ static int ffs_ep0_open(struct inode *inode, struct file *file)
 
 	ENTER();
 
-	ffs_log("state %d setup_state %d flags %lu opened %d", ffs->state,
-		ffs->setup_state, ffs->flags, atomic_read(&ffs->opened));
+	//ffs_log("state %d setup_state %d flags %lu opened %d", ffs->state,
+	//	ffs->setup_state, ffs->flags, atomic_read(&ffs->opened));
 
 	if (unlikely(ffs->state == FFS_CLOSING))
 		return -EBUSY;
@@ -598,8 +598,8 @@ static int ffs_ep0_release(struct inode *inode, struct file *file)
 
 	ENTER();
 
-	ffs_log("state %d setup_state %d flags %lu opened %d", ffs->state,
-		ffs->setup_state, ffs->flags, atomic_read(&ffs->opened));
+	//ffs_log("state %d setup_state %d flags %lu opened %d", ffs->state,
+	//	ffs->setup_state, ffs->flags, atomic_read(&ffs->opened));
 
 	ffs_data_closed(ffs);
 
@@ -614,8 +614,8 @@ static long ffs_ep0_ioctl(struct file *file, unsigned code, unsigned long value)
 
 	ENTER();
 
-	ffs_log("state %d setup_state %d flags %lu opened %d", ffs->state,
-		ffs->setup_state, ffs->flags, atomic_read(&ffs->opened));
+	//ffs_log("state %d setup_state %d flags %lu opened %d", ffs->state,
+	//	ffs->setup_state, ffs->flags, atomic_read(&ffs->opened));
 
 	if (code == FUNCTIONFS_INTERFACE_REVMAP) {
 		struct ffs_function *func = ffs->func;
@@ -635,8 +635,8 @@ static unsigned int ffs_ep0_poll(struct file *file, poll_table *wait)
 	unsigned int mask = POLLWRNORM;
 	int ret;
 
-	ffs_log("enter:state %d setup_state %d flags %lu opened %d", ffs->state,
-		ffs->setup_state, ffs->flags, atomic_read(&ffs->opened));
+	//ffs_log("enter:state %d setup_state %d flags %lu opened %d", ffs->state,
+	//	ffs->setup_state, ffs->flags, atomic_read(&ffs->opened));
 
 	poll_wait(file, &ffs->ev.waitq, wait);
 
@@ -668,7 +668,7 @@ static unsigned int ffs_ep0_poll(struct file *file, poll_table *wait)
 		break;
 	}
 
-	ffs_log("exit: mask %u", mask);
+	//ffs_log("exit: mask %u", mask);
 
 	mutex_unlock(&ffs->mutex);
 
@@ -700,7 +700,7 @@ static void ffs_epfile_io_complete(struct usb_ep *_ep, struct usb_request *req)
 		ep->status = req->status ? req->status : req->actual;
 		/* Set is_busy false to indicate completion of last request */
 		ep->is_busy = false;
-		ffs_log("ep status %d for req %pK", ep->status, req);
+		//ffs_log("ep status %d for req %pK", ep->status, req);
 		complete(req->context);
 	}
 }
@@ -713,7 +713,7 @@ static void ffs_user_copy_worker(struct work_struct *work)
 					 io_data->req->actual;
 	bool kiocb_has_eventfd = io_data->kiocb->ki_flags & IOCB_EVENTFD;
 
-	ffs_log("enter: ret %d", ret);
+	//ffs_log("enter: ret %d", ret);
 
 	if (io_data->read && ret > 0) {
 		use_mm(io_data->mm);
@@ -735,7 +735,7 @@ static void ffs_user_copy_worker(struct work_struct *work)
 	kfree(io_data->buf);
 	kfree(io_data);
 
-	ffs_log("exit");
+	//ffs_log("exit");
 }
 
 static void ffs_epfile_async_io_complete(struct usb_ep *_ep,
@@ -745,12 +745,12 @@ static void ffs_epfile_async_io_complete(struct usb_ep *_ep,
 
 	ENTER();
 
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	INIT_WORK(&io_data->work, ffs_user_copy_worker);
 	schedule_work(&io_data->work);
 
-	ffs_log("exit");
+	//ffs_log("exit");
 }
 
 static ssize_t ffs_epfile_io(struct file *file, struct ffs_io_data *io_data)
@@ -762,8 +762,8 @@ static ssize_t ffs_epfile_io(struct file *file, struct ffs_io_data *io_data)
 	ssize_t ret, data_len = -EINVAL;
 	int halt;
 
-	ffs_log("enter: epfile name %s epfile err %d (%s)", epfile->name,
-		atomic_read(&epfile->error), io_data->read ? "READ" : "WRITE");
+	//ffs_log("enter: epfile name %s epfile err %d (%s)", epfile->name,
+	//	atomic_read(&epfile->error), io_data->read ? "READ" : "WRITE");
 
 	smp_mb__before_atomic();
 retry:
@@ -1025,7 +1025,7 @@ retry:
 
 	mutex_unlock(&epfile->mutex);
 
-	ffs_log("exit:ret %zu", ret);
+	//ffs_log("exit:ret %zu", ret);
 
 	return ret;
 
@@ -1035,7 +1035,7 @@ error_lock:
 error:
 	kfree(data);
 
-	ffs_log("exit: ret %zu", ret);
+	//ffs_log("exit: ret %zu", ret);
 
 	return ret;
 }
@@ -1047,8 +1047,8 @@ ffs_epfile_open(struct inode *inode, struct file *file)
 
 	ENTER();
 
-	ffs_log("enter:state %d setup_state %d flag %lu", epfile->ffs->state,
-		epfile->ffs->setup_state, epfile->ffs->flags);
+	//ffs_log("enter:state %d setup_state %d flag %lu", epfile->ffs->state,
+	//	epfile->ffs->setup_state, epfile->ffs->flags);
 
 	if (WARN_ON(epfile->ffs->state != FFS_ACTIVE))
 		return -ENODEV;
@@ -1069,8 +1069,8 @@ ffs_epfile_open(struct inode *inode, struct file *file)
 	atomic_set(&epfile->error, 0);
 	first_read_done = false;
 
-	ffs_log("exit:state %d setup_state %d flag %lu", epfile->ffs->state,
-		epfile->ffs->setup_state, epfile->ffs->flags);
+	//ffs_log("exit:state %d setup_state %d flag %lu", epfile->ffs->state,
+	//	epfile->ffs->setup_state, epfile->ffs->flags);
 
 	return 0;
 }
@@ -1083,8 +1083,8 @@ static int ffs_aio_cancel(struct kiocb *kiocb)
 
 	ENTER();
 
-	ffs_log("enter:state %d setup_state %d flag %lu", epfile->ffs->state,
-		epfile->ffs->setup_state, epfile->ffs->flags);
+	//ffs_log("enter:state %d setup_state %d flag %lu", epfile->ffs->state,
+	//	epfile->ffs->setup_state, epfile->ffs->flags);
 
 	spin_lock_irq(&epfile->ffs->eps_lock);
 
@@ -1095,7 +1095,7 @@ static int ffs_aio_cancel(struct kiocb *kiocb)
 
 	spin_unlock_irq(&epfile->ffs->eps_lock);
 
-	ffs_log("exit: value %d", value);
+	//ffs_log("exit: value %d", value);
 
 	return value;
 }
@@ -1107,7 +1107,7 @@ static ssize_t ffs_epfile_write_iter(struct kiocb *kiocb, struct iov_iter *from)
 
 	ENTER();
 
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	if (!is_sync_kiocb(kiocb)) {
 		p = kmalloc(sizeof(io_data), GFP_KERNEL);
@@ -1136,7 +1136,7 @@ static ssize_t ffs_epfile_write_iter(struct kiocb *kiocb, struct iov_iter *from)
 	else
 		*from = p->data;
 
-	ffs_log("exit");
+	//ffs_log("exit");
 
 	return res;
 }
@@ -1148,7 +1148,7 @@ static ssize_t ffs_epfile_read_iter(struct kiocb *kiocb, struct iov_iter *to)
 
 	ENTER();
 
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	if (!is_sync_kiocb(kiocb)) {
 		p = kmalloc(sizeof(io_data), GFP_KERNEL);
@@ -1189,7 +1189,7 @@ static ssize_t ffs_epfile_read_iter(struct kiocb *kiocb, struct iov_iter *to)
 		*to = p->data;
 	}
 
-	ffs_log("exit");
+	//ffs_log("exit");
 
 	return res;
 }
@@ -1201,8 +1201,8 @@ ffs_epfile_release(struct inode *inode, struct file *file)
 
 	ENTER();
 
-	ffs_log("enter:state %d setup_state %d flag %lu", epfile->ffs->state,
-		epfile->ffs->setup_state, epfile->ffs->flags);
+	//ffs_log("enter:state %d setup_state %d flag %lu", epfile->ffs->state,
+	//	epfile->ffs->setup_state, epfile->ffs->flags);
 
 	smp_mb__before_atomic();
 	atomic_set(&epfile->opened, 0);
@@ -1210,7 +1210,7 @@ ffs_epfile_release(struct inode *inode, struct file *file)
 	ffs_data_closed(epfile->ffs);
 	file->private_data = NULL;
 
-	ffs_log("exit");
+	//ffs_log("exit");
 
 	return 0;
 }
@@ -1223,8 +1223,8 @@ static long ffs_epfile_ioctl(struct file *file, unsigned code,
 
 	ENTER();
 
-	ffs_log("enter:state %d setup_state %d flag %lu", epfile->ffs->state,
-		epfile->ffs->setup_state, epfile->ffs->flags);
+	//ffs_log("enter:state %d setup_state %d flag %lu", epfile->ffs->state,
+	//	epfile->ffs->setup_state, epfile->ffs->flags);
 
 	if (WARN_ON(epfile->ffs->state != FFS_ACTIVE))
 		return -ENODEV;
@@ -1276,7 +1276,7 @@ static long ffs_epfile_ioctl(struct file *file, unsigned code,
 	}
 	spin_unlock_irq(&epfile->ffs->eps_lock);
 
-	ffs_log("exit:ret %d", ret);
+	//ffs_log("exit:ret %d", ret);
 
 	return ret;
 }
@@ -1309,7 +1309,7 @@ ffs_sb_make_inode(struct super_block *sb, void *data,
 
 	ENTER();
 
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	inode = new_inode(sb);
 
@@ -1330,7 +1330,7 @@ ffs_sb_make_inode(struct super_block *sb, void *data,
 			inode->i_op  = iops;
 	}
 
-	ffs_log("exit");
+	//ffs_log("exit");
 
 	return inode;
 }
@@ -1346,7 +1346,7 @@ static struct dentry *ffs_sb_create_file(struct super_block *sb,
 
 	ENTER();
 
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	dentry = d_alloc_name(sb->s_root, name);
 	if (unlikely(!dentry))
@@ -1360,7 +1360,7 @@ static struct dentry *ffs_sb_create_file(struct super_block *sb,
 
 	d_add(dentry, inode);
 
-	ffs_log("exit");
+	//ffs_log("exit");
 
 	return dentry;
 }
@@ -1387,7 +1387,7 @@ static int ffs_sb_fill(struct super_block *sb, void *_data, int silent)
 
 	ENTER();
 
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	ffs->sb              = sb;
 	data->ffs_data       = NULL;
@@ -1413,7 +1413,7 @@ static int ffs_sb_fill(struct super_block *sb, void *_data, int silent)
 					 &ffs_ep0_operations)))
 		return -ENOMEM;
 
-	ffs_log("exit");
+	//ffs_log("exit");
 
 	return 0;
 }
@@ -1422,7 +1422,7 @@ static int ffs_fs_parse_opts(struct ffs_sb_fill_data *data, char *opts)
 {
 	ENTER();
 
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	if (!opts || !*opts)
 		return 0;
@@ -1506,7 +1506,7 @@ invalid:
 		opts = comma + 1;
 	}
 
-	ffs_log("exit");
+	//ffs_log("exit");
 
 	return 0;
 }
@@ -1533,7 +1533,7 @@ ffs_fs_mount(struct file_system_type *t, int flags,
 
 	ENTER();
 
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	ret = ffs_fs_parse_opts(&data, opts);
 	if (unlikely(ret < 0))
@@ -1565,7 +1565,7 @@ ffs_fs_mount(struct file_system_type *t, int flags,
 		ffs_data_put(data.ffs_data);
 	}
 
-	ffs_log("exit");
+	//ffs_log("exit");
 
 	return rv;
 }
@@ -1575,7 +1575,7 @@ ffs_fs_kill_sb(struct super_block *sb)
 {
 	ENTER();
 
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	kill_litter_super(sb);
 	if (sb->s_fs_info) {
@@ -1584,7 +1584,7 @@ ffs_fs_kill_sb(struct super_block *sb)
 		ffs_data_put(sb->s_fs_info);
 	}
 
-	ffs_log("exit");
+	//ffs_log("exit");
 }
 
 static struct file_system_type ffs_fs_type = {
@@ -1640,20 +1640,20 @@ static void ffs_data_get(struct ffs_data *ffs)
 {
 	ENTER();
 
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	smp_mb__before_atomic();
 	atomic_inc(&ffs->ref);
 
-	ffs_log("exit");
+	//ffs_log("exit");
 }
 
 static void ffs_data_opened(struct ffs_data *ffs)
 {
 	ENTER();
 
-	ffs_log("enter: state %d setup_state %d flag %lu opened %d", ffs->state,
-		ffs->setup_state, ffs->flags, atomic_read(&ffs->opened));
+	//ffs_log("enter: state %d setup_state %d flag %lu opened %d", ffs->state,
+	//	ffs->setup_state, ffs->flags, atomic_read(&ffs->opened));
 
 	smp_mb__before_atomic();
 	atomic_inc(&ffs->ref);
@@ -1663,15 +1663,15 @@ static void ffs_data_opened(struct ffs_data *ffs)
 		ffs_data_reset(ffs);
 	}
 
-	ffs_log("exit: state %d setup_state %d flag %lu", ffs->state,
-		ffs->setup_state, ffs->flags);
+	//ffs_log("exit: state %d setup_state %d flag %lu", ffs->state,
+	//	ffs->setup_state, ffs->flags);
 }
 
 static void ffs_data_put(struct ffs_data *ffs)
 {
 	ENTER();
 
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	smp_mb__before_atomic();
 	if (unlikely(atomic_dec_and_test(&ffs->ref))) {
@@ -1683,15 +1683,15 @@ static void ffs_data_put(struct ffs_data *ffs)
 		kfree(ffs);
 	}
 
-	ffs_log("exit");
+	//ffs_log("exit");
 }
 
 static void ffs_data_closed(struct ffs_data *ffs)
 {
 	ENTER();
 
-	ffs_log("enter: state %d setup_state %d flag %lu opened %d", ffs->state,
-		ffs->setup_state, ffs->flags, atomic_read(&ffs->opened));
+	//ffs_log("enter: state %d setup_state %d flag %lu opened %d", ffs->state,
+	//	ffs->setup_state, ffs->flags, atomic_read(&ffs->opened));
 
 	smp_mb__before_atomic();
 	if (atomic_dec_and_test(&ffs->opened)) {
@@ -1716,8 +1716,8 @@ static void ffs_data_closed(struct ffs_data *ffs)
 		ffs_data_reset(ffs);
 	}
 
-	ffs_log("exit: state %d setup_state %d flag %lu", ffs->state,
-		ffs->setup_state, ffs->flags);
+	//ffs_log("exit: state %d setup_state %d flag %lu", ffs->state,
+	//	ffs->setup_state, ffs->flags);
 
 	ffs_data_put(ffs);
 }
@@ -1730,7 +1730,7 @@ static struct ffs_data *ffs_data_new(void)
 
 	ENTER();
 
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	atomic_set(&ffs->ref, 1);
 	atomic_set(&ffs->opened, 0);
@@ -1745,7 +1745,7 @@ static struct ffs_data *ffs_data_new(void)
 	/* XXX REVISIT need to update it in some places, or do we? */
 	ffs->ev.can_stall = 1;
 
-	ffs_log("exit");
+	//ffs_log("exit");
 
 	return ffs;
 }
@@ -1754,8 +1754,8 @@ static void ffs_data_clear(struct ffs_data *ffs)
 {
 	ENTER();
 
-	ffs_log("enter: state %d setup_state %d flag %lu", ffs->state,
-		ffs->setup_state, ffs->flags);
+	//ffs_log("enter: state %d setup_state %d flag %lu", ffs->state,
+	//	ffs->setup_state, ffs->flags);
 
 	pr_debug("%s: ffs->gadget= %pK, ffs->flags= %lu\n",
 				__func__, ffs->gadget, ffs->flags);
@@ -1776,16 +1776,16 @@ static void ffs_data_clear(struct ffs_data *ffs)
 	kfree(ffs->raw_strings);
 	kfree(ffs->stringtabs);
 
-	ffs_log("exit: state %d setup_state %d flag %lu", ffs->state,
-		ffs->setup_state, ffs->flags);
+	//ffs_log("exit: state %d setup_state %d flag %lu", ffs->state,
+	//	ffs->setup_state, ffs->flags);
 }
 
 static void ffs_data_reset(struct ffs_data *ffs)
 {
 	ENTER();
 
-	ffs_log("enter: state %d setup_state %d flag %lu", ffs->state,
-		ffs->setup_state, ffs->flags);
+	//ffs_log("enter: state %d setup_state %d flag %lu", ffs->state,
+	//	ffs->setup_state, ffs->flags);
 
 	ffs_data_clear(ffs);
 
@@ -1810,8 +1810,8 @@ static void ffs_data_reset(struct ffs_data *ffs)
 	ffs->setup_state = FFS_NO_SETUP;
 	ffs->flags = 0;
 
-	ffs_log("exit: state %d setup_state %d flag %lu", ffs->state,
-		ffs->setup_state, ffs->flags);
+	//ffs_log("exit: state %d setup_state %d flag %lu", ffs->state,
+	//	ffs->setup_state, ffs->flags);
 }
 
 
@@ -1822,8 +1822,8 @@ static int functionfs_bind(struct ffs_data *ffs, struct usb_composite_dev *cdev)
 
 	ENTER();
 
-	ffs_log("enter: state %d setup_state %d flag %lu", ffs->state,
-		ffs->setup_state, ffs->flags);
+	//ffs_log("enter: state %d setup_state %d flag %lu", ffs->state,
+	//	ffs->setup_state, ffs->flags);
 
 	if (WARN_ON(ffs->state != FFS_ACTIVE
 		 || test_and_set_bit(FFS_FL_BOUND, &ffs->flags)))
@@ -1851,8 +1851,8 @@ static int functionfs_bind(struct ffs_data *ffs, struct usb_composite_dev *cdev)
 
 	ffs->gadget = cdev->gadget;
 
-	ffs_log("exit: state %d setup_state %d flag %lu gadget %pK\n",
-			ffs->state, ffs->setup_state, ffs->flags, ffs->gadget);
+	//ffs_log("exit: state %d setup_state %d flag %lu gadget %pK\n",
+	//		ffs->state, ffs->setup_state, ffs->flags, ffs->gadget);
 
 	ffs_data_get(ffs);
 	return 0;
@@ -1867,8 +1867,8 @@ static void functionfs_unbind(struct ffs_data *ffs)
 		ffs->ep0req = NULL;
 		ffs->gadget = NULL;
 		clear_bit(FFS_FL_BOUND, &ffs->flags);
-		ffs_log("state %d setup_state %d flag %lu gadget %pK\n",
-			ffs->state, ffs->setup_state, ffs->flags, ffs->gadget);
+		//ffs_log("state %d setup_state %d flag %lu gadget %pK\n",
+		//	ffs->state, ffs->setup_state, ffs->flags, ffs->gadget);
 		ffs_data_put(ffs);
 	}
 }
@@ -1880,8 +1880,8 @@ static int ffs_epfiles_create(struct ffs_data *ffs)
 
 	ENTER();
 
-	ffs_log("enter: state %d setup_state %d flag %lu", ffs->state,
-		ffs->setup_state, ffs->flags);
+	//ffs_log("enter: state %d setup_state %d flag %lu", ffs->state,
+	//	ffs->setup_state, ffs->flags);
 
 	count = ffs->eps_count;
 	epfiles = kcalloc(count, sizeof(*epfiles), GFP_KERNEL);
@@ -1909,8 +1909,8 @@ static int ffs_epfiles_create(struct ffs_data *ffs)
 
 	ffs->epfiles = epfiles;
 
-	ffs_log("exit: eps_count %u state %d setup_state %d flag %lu",
-		count, ffs->state, ffs->setup_state, ffs->flags);
+	//ffs_log("exit: epfile name %s state %d setup_state %d flag %lu",
+	//	epfile->name, ffs->state, ffs->setup_state, ffs->flags);
 
 	return 0;
 }
@@ -1921,7 +1921,7 @@ static void ffs_epfiles_destroy(struct ffs_epfile *epfiles, unsigned count)
 
 	ENTER();
 
-	ffs_log("enter: count %u", count);
+	//ffs_log("enter: epfilename %s", epfile->name);
 
 	for (; count; --count, ++epfile) {
 		BUG_ON(mutex_is_locked(&epfile->mutex) ||
@@ -1935,7 +1935,7 @@ static void ffs_epfiles_destroy(struct ffs_epfile *epfiles, unsigned count)
 
 	kfree(epfiles);
 
-	ffs_log("exit");
+	//ffs_log("exit");
 }
 
 static void ffs_func_eps_disable(struct ffs_function *func)
@@ -1945,8 +1945,8 @@ static void ffs_func_eps_disable(struct ffs_function *func)
 	unsigned count            = func->ffs->eps_count;
 	unsigned long flags;
 
-	ffs_log("enter: state %d setup_state %d flag %lu", func->ffs->state,
-		func->ffs->setup_state, func->ffs->flags);
+	//ffs_log("enter: state %d setup_state %d flag %lu", func->ffs->state,
+	//	func->ffs->setup_state, func->ffs->flags);
 
 	spin_lock_irqsave(&func->ffs->eps_lock, flags);
 	do {
@@ -1968,7 +1968,7 @@ static void ffs_func_eps_disable(struct ffs_function *func)
 	} while (--count);
 	spin_unlock_irqrestore(&func->ffs->eps_lock, flags);
 
-	ffs_log("exit");
+	//ffs_log("exit");
 }
 
 static int ffs_func_eps_enable(struct ffs_function *func)
@@ -1980,8 +1980,8 @@ static int ffs_func_eps_enable(struct ffs_function *func)
 	unsigned long flags;
 	int ret = 0;
 
-	ffs_log("enter: state %d setup_state %d flag %lu", func->ffs->state,
-		func->ffs->setup_state, func->ffs->flags);
+	//ffs_log("enter: state %d setup_state %d flag %lu", func->ffs->state,
+	//	func->ffs->setup_state, func->ffs->flags);
 
 	spin_lock_irqsave(&func->ffs->eps_lock, flags);
 	do {
@@ -2020,7 +2020,7 @@ static int ffs_func_eps_enable(struct ffs_function *func)
 			epfile->ep = ep;
 			epfile->in = usb_endpoint_dir_in(ds);
 			epfile->isoc = usb_endpoint_xfer_isoc(ds);
-			ffs_log("usb_ep_enable %s", ep->ep->name);
+			//ffs_log("usb_ep_enable %s", ep->ep->name);
 		} else {
 			break;
 		}
@@ -2032,7 +2032,7 @@ static int ffs_func_eps_enable(struct ffs_function *func)
 	} while (--count);
 	spin_unlock_irqrestore(&func->ffs->eps_lock, flags);
 
-	ffs_log("exit: ret %d", ret);
+	//ffs_log("exit: ret %d", ret);
 
 	return ret;
 }
@@ -2074,7 +2074,7 @@ static int __must_check ffs_do_single_desc(char *data, unsigned len,
 
 	ENTER();
 
-	ffs_log("enter: len %u", len);
+	//ffs_log("enter: len %u", len);
 
 	/* At least two bytes are required: length and type */
 	if (len < 2) {
@@ -2192,7 +2192,7 @@ inv_length:
 #undef __entity_check_STRING
 #undef __entity_check_ENDPOINT
 
-	ffs_log("exit: desc type %d length %d", _ds->bDescriptorType, length);
+	//ffs_log("exit: desc type %d length %d", _ds->bDescriptorType, length);
 
 	return length;
 }
@@ -2205,7 +2205,7 @@ static int __must_check ffs_do_descs(unsigned count, char *data, unsigned len,
 
 	ENTER();
 
-	ffs_log("enter: len %u", len);
+	//ffs_log("enter: len %u", len);
 
 	for (;;) {
 		int ret;
@@ -2235,7 +2235,7 @@ static int __must_check ffs_do_descs(unsigned count, char *data, unsigned len,
 		++num;
 	}
 
-	ffs_log("exit: len %u", len);
+	//ffs_log("exit: len %u", len);
 }
 
 static int __ffs_data_do_entity(enum ffs_entity_type type,
@@ -2247,7 +2247,7 @@ static int __ffs_data_do_entity(enum ffs_entity_type type,
 
 	ENTER();
 
-	ffs_log("enter: type %u", type);
+	//ffs_log("enter: type %u", type);
 
 	switch (type) {
 	case FFS_DESCRIPTOR:
@@ -2287,7 +2287,7 @@ static int __ffs_data_do_entity(enum ffs_entity_type type,
 		break;
 	}
 
-	ffs_log("exit");
+	//ffs_log("exit");
 
 	return 0;
 }
@@ -2298,7 +2298,7 @@ static int __ffs_do_os_desc_header(enum ffs_os_desc_type *next_type,
 	u16 bcd_version = le16_to_cpu(desc->bcdVersion);
 	u16 w_index = le16_to_cpu(desc->wIndex);
 
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	if (bcd_version != 1) {
 		pr_vdebug("unsupported os descriptors version: %d",
@@ -2317,7 +2317,7 @@ static int __ffs_do_os_desc_header(enum ffs_os_desc_type *next_type,
 		return -EINVAL;
 	}
 
-	ffs_log("exit: size of desc %zu", sizeof(*desc));
+	//ffs_log("exit: size of desc %zu", sizeof(*desc));
 
 	return sizeof(*desc);
 }
@@ -2338,7 +2338,7 @@ static int __must_check ffs_do_single_os_desc(char *data, unsigned len,
 
 	ENTER();
 
-	ffs_log("enter: len %u os desc type %d", len, type);
+	//ffs_log("enter: len %u os desc type %d", len, type);
 
 	/* loop over all ext compat/ext prop descriptors */
 	while (feature_count--) {
@@ -2351,7 +2351,7 @@ static int __must_check ffs_do_single_os_desc(char *data, unsigned len,
 		len -= ret;
 	}
 
-	ffs_log("exit");
+	//ffs_log("exit");
 
 	return _len - len;
 }
@@ -2366,7 +2366,7 @@ static int __must_check ffs_do_os_descs(unsigned count,
 
 	ENTER();
 
-	ffs_log("enter: len %u", len);
+	//ffs_log("enter: len %u", len);
 
 	for (num = 0; num < count; ++num) {
 		int ret;
@@ -2418,7 +2418,7 @@ static int __must_check ffs_do_os_descs(unsigned count,
 		data += ret;
 	}
 
-	ffs_log("exit");
+	//ffs_log("exit");
 
 	return _len - len;
 }
@@ -2435,7 +2435,7 @@ static int __ffs_data_do_os_desc(enum ffs_os_desc_type type,
 
 	ENTER();
 
-	ffs_log("enter: len %u", len);
+	//ffs_log("enter: len %u", len);
 
 	switch (type) {
 	case FFS_OS_DESC_EXT_COMPAT: {
@@ -2492,7 +2492,7 @@ static int __ffs_data_do_os_desc(enum ffs_os_desc_type type,
 		return -EINVAL;
 	}
 
-	ffs_log("exit");
+	//ffs_log("exit");
 
 	return length;
 }
@@ -2507,7 +2507,7 @@ static int __ffs_data_got_descs(struct ffs_data *ffs,
 
 	ENTER();
 
-	ffs_log("enter: len %zu", len);
+	//ffs_log("enter: len %zu", len);
 
 	if (get_unaligned_le32(data + 4) != len)
 		goto error;
@@ -2619,13 +2619,13 @@ static int __ffs_data_got_descs(struct ffs_data *ffs,
 	ffs->ss_descs_count	= counts[2];
 	ffs->ms_os_descs_count	= os_descs_count;
 
-	ffs_log("exit");
+	//ffs_log("exit");
 
 	return 0;
 
 error:
 	kfree(_data);
-	ffs_log("exit: ret %d", ret);
+	//ffs_log("exit: ret %d", ret);
 	return ret;
 }
 
@@ -2639,7 +2639,7 @@ static int __ffs_data_got_strings(struct ffs_data *ffs,
 
 	ENTER();
 
-	ffs_log("enter: len %zu", len);
+	//ffs_log("enter: len %zu", len);
 
 	if (unlikely(get_unaligned_le32(data) != FUNCTIONFS_STRINGS_MAGIC ||
 		     get_unaligned_le32(data + 4) != len))
@@ -2755,14 +2755,14 @@ static int __ffs_data_got_strings(struct ffs_data *ffs,
 	ffs->stringtabs = stringtabs;
 	ffs->raw_strings = _data;
 
-	ffs_log("exit");
+	//ffs_log("exit");
 	return 0;
 
 error_free:
 	kfree(stringtabs);
 error:
 	kfree(_data);
-	ffs_log("exit: -EINVAL");
+	//ffs_log("exit: -EINVAL");
 	return -EINVAL;
 }
 
@@ -2775,8 +2775,8 @@ static void __ffs_event_add(struct ffs_data *ffs,
 	enum usb_functionfs_event_type rem_type1, rem_type2 = type;
 	int neg = 0;
 
-	ffs_log("enter: type %d state %d setup_state %d flag %lu", type,
-		ffs->state, ffs->setup_state, ffs->flags);
+	//ffs_log("enter: type %d state %d setup_state %d flag %lu", type,
+	//	ffs->state, ffs->setup_state, ffs->flags);
 
 	/*
 	 * Abort any unhandled setup
@@ -2838,8 +2838,8 @@ static void __ffs_event_add(struct ffs_data *ffs,
 	if (ffs->ffs_eventfd)
 		eventfd_signal(ffs->ffs_eventfd, 1);
 
-	ffs_log("exit: state %d setup_state %d flag %lu", ffs->state,
-		ffs->setup_state, ffs->flags);
+	//ffs_log("exit: state %d setup_state %d flag %lu", ffs->state,
+	//	ffs->setup_state, ffs->flags);
 }
 
 static void ffs_event_add(struct ffs_data *ffs,
@@ -2874,7 +2874,7 @@ static int __ffs_func_bind_do_descs(enum ffs_entity_type type, u8 *valuep,
 	int idx;
 	static const char *speed_names[] = { "full", "high", "super" };
 
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	if (type != FFS_DESCRIPTOR)
 		return 0;
@@ -2951,7 +2951,7 @@ static int __ffs_func_bind_do_descs(enum ffs_entity_type type, u8 *valuep,
 	}
 	ffs_dump_mem(": Rewritten ep desc", ds, ds->bLength);
 
-	ffs_log("exit");
+	//ffs_log("exit");
 
 	return 0;
 }
@@ -2964,7 +2964,7 @@ static int __ffs_func_bind_do_nums(enum ffs_entity_type type, u8 *valuep,
 	unsigned idx;
 	u8 newValue;
 
-	ffs_log("enter: type %d", type);
+	//ffs_log("enter: type %d", type);
 
 	switch (type) {
 	default:
@@ -3011,7 +3011,7 @@ static int __ffs_func_bind_do_nums(enum ffs_entity_type type, u8 *valuep,
 	pr_vdebug("%02x -> %02x\n", *valuep, newValue);
 	*valuep = newValue;
 
-	ffs_log("exit: newValue %d", newValue);
+	//ffs_log("exit: newValue %d", newValue);
 
 	return 0;
 }
@@ -3023,7 +3023,7 @@ static int __ffs_func_bind_do_os_desc(enum ffs_os_desc_type type,
 	struct ffs_function *func = priv;
 	u8 length = 0;
 
-	ffs_log("enter: type %d", type);
+	//ffs_log("enter: type %d", type);
 
 	switch (type) {
 	case FFS_OS_DESC_EXT_COMPAT: {
@@ -3094,7 +3094,7 @@ static int __ffs_func_bind_do_os_desc(enum ffs_os_desc_type type,
 		pr_vdebug("unknown descriptor: %d\n", type);
 	}
 
-	ffs_log("exit");
+	//ffs_log("exit");
 
 	return length;
 }
@@ -3109,7 +3109,7 @@ static inline struct f_fs_opts *ffs_do_functionfs_bind(struct usb_function *f,
 
 	ENTER();
 
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	/*
 	 * Legacy gadget triggers binding in functionfs_ready_callback,
@@ -3145,7 +3145,7 @@ static inline struct f_fs_opts *ffs_do_functionfs_bind(struct usb_function *f,
 	ffs_opts->refcnt++;
 	func->function.strings = func->ffs->stringtabs;
 
-	ffs_log("exit");
+	//ffs_log("exit");
 
 	return ffs_opts;
 }
@@ -3190,8 +3190,8 @@ static int _ffs_func_bind(struct usb_configuration *c,
 
 	ENTER();
 
-	ffs_log("enter: state %d setup_state %d flag %lu", ffs->state,
-		ffs->setup_state, ffs->flags);
+	//ffs_log("enter: state %d setup_state %d flag %lu", ffs->state,
+	//	ffs->setup_state, ffs->flags);
 
 	/* Has descriptors only for speeds gadget does not support */
 	if (unlikely(!(full | high | super)))
@@ -3284,7 +3284,7 @@ static int _ffs_func_bind(struct usb_configuration *c,
 		goto error;
 
 	func->function.os_desc_table = vla_ptr(vlabuf, d, os_desc_table);
-	if (c->cdev->use_os_string)
+	if (c->cdev->use_os_string) {
 		for (i = 0; i < ffs->interfaces_count; ++i) {
 			struct usb_os_desc *desc;
 
@@ -3295,11 +3295,14 @@ static int _ffs_func_bind(struct usb_configuration *c,
 				vla_ptr(vlabuf, d, ext_compat) + i * 16;
 			INIT_LIST_HEAD(&desc->ext_prop);
 		}
-	ret = ffs_do_os_descs(ffs->ms_os_descs_count,
+
+		ret = ffs_do_os_descs(ffs->ms_os_descs_count,
 			      vla_ptr(vlabuf, d, raw_descs) +
 			      fs_len + hs_len + ss_len,
 			      d_raw_descs__sz - fs_len - hs_len - ss_len,
 			      __ffs_func_bind_do_os_desc, func);
+	}
+
 	if (unlikely(ret < 0))
 		goto error;
 	func->function.os_desc_n =
@@ -3308,14 +3311,14 @@ static int _ffs_func_bind(struct usb_configuration *c,
 	/* And we're done */
 	ffs_event_add(ffs, FUNCTIONFS_BIND);
 
-	ffs_log("exit: state %d setup_state %d flag %lu", ffs->state,
-		ffs->setup_state, ffs->flags);
+	//ffs_log("exit: state %d setup_state %d flag %lu", ffs->state,
+	//	ffs->setup_state, ffs->flags);
 
 	return 0;
 
 error:
 	/* XXX Do we need to release all claimed endpoints here? */
-	ffs_log("exit: ret %d", ret);
+	//ffs_log("exit: ret %d", ret);
 	return ret;
 }
 
@@ -3326,7 +3329,7 @@ static int ffs_func_bind(struct usb_configuration *c,
 	struct ffs_function *func = ffs_func_from_usb(f);
 	int ret;
 
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	if (IS_ERR(ffs_opts))
 		return PTR_ERR(ffs_opts);
@@ -3335,7 +3338,7 @@ static int ffs_func_bind(struct usb_configuration *c,
 	if (ret && !--ffs_opts->refcnt)
 		functionfs_unbind(func->ffs);
 
-	ffs_log("exit: ret %d", ret);
+	//ffs_log("exit: ret %d", ret);
 
 	return ret;
 }
@@ -3348,11 +3351,11 @@ static void ffs_reset_work(struct work_struct *work)
 	struct ffs_data *ffs = container_of(work,
 		struct ffs_data, reset_work);
 
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	ffs_data_reset(ffs);
 
-	ffs_log("exit");
+	//ffs_log("exit");
 }
 
 static int ffs_func_set_alt(struct usb_function *f,
@@ -3362,7 +3365,7 @@ static int ffs_func_set_alt(struct usb_function *f,
 	struct ffs_data *ffs = func->ffs;
 	int ret = 0, intf;
 
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	if (alt != (unsigned)-1) {
 		intf = ffs_func_revmap_intf(func, interface);
@@ -3401,18 +3404,18 @@ static int ffs_func_set_alt(struct usb_function *f,
 		usb_gadget_autopm_get_async(ffs->gadget);
 	}
 
-	ffs_log("exit: ret %d", ret);
+	//ffs_log("exit: ret %d", ret);
 
 	return ret;
 }
 
 static void ffs_func_disable(struct usb_function *f)
 {
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	ffs_func_set_alt(f, 0, (unsigned)-1);
 
-	ffs_log("exit");
+	//ffs_log("exit");
 }
 
 static int ffs_func_setup(struct usb_function *f,
@@ -3425,7 +3428,7 @@ static int ffs_func_setup(struct usb_function *f,
 
 	ENTER();
 
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	pr_vdebug("creq->bRequestType = %02x\n", creq->bRequestType);
 	pr_vdebug("creq->bRequest     = %02x\n", creq->bRequest);
@@ -3470,7 +3473,7 @@ static int ffs_func_setup(struct usb_function *f,
 	__ffs_event_add(ffs, FUNCTIONFS_SETUP);
 	spin_unlock_irqrestore(&ffs->ev.waitq.lock, flags);
 
-	ffs_log("exit");
+	//ffs_log("exit");
 
 	return 0;
 }
@@ -3479,22 +3482,22 @@ static void ffs_func_suspend(struct usb_function *f)
 {
 	ENTER();
 
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	ffs_event_add(ffs_func_from_usb(f)->ffs, FUNCTIONFS_SUSPEND);
 
-	ffs_log("exit");
+	//ffs_log("exit");
 }
 
 static void ffs_func_resume(struct usb_function *f)
 {
 	ENTER();
 
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	ffs_event_add(ffs_func_from_usb(f)->ffs, FUNCTIONFS_RESUME);
 
-	ffs_log("exit");
+	//ffs_log("exit");
 }
 
 
@@ -3511,14 +3514,14 @@ static int ffs_func_revmap_intf(struct ffs_function *func, u8 intf)
 	short *nums = func->interfaces_nums;
 	unsigned count = func->ffs->interfaces_count;
 
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	for (; count; --count, ++nums) {
 		if (*nums >= 0 && *nums == intf)
 			return nums - func->interfaces_nums;
 	}
 
-	ffs_log("exit");
+	//ffs_log("exit");
 
 	return -EDOM;
 }
@@ -3532,7 +3535,7 @@ static struct ffs_dev *_ffs_do_find_dev(const char *name)
 {
 	struct ffs_dev *dev;
 
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	list_for_each_entry(dev, &ffs_devices, entry) {
 		if (!dev->name || !name)
@@ -3541,7 +3544,7 @@ static struct ffs_dev *_ffs_do_find_dev(const char *name)
 			return dev;
 	}
 
-	ffs_log("exit");
+	//ffs_log("exit");
 
 	return NULL;
 }
@@ -3553,7 +3556,7 @@ static struct ffs_dev *_ffs_get_single_dev(void)
 {
 	struct ffs_dev *dev;
 
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	if (list_is_singular(&ffs_devices)) {
 		dev = list_first_entry(&ffs_devices, struct ffs_dev, entry);
@@ -3561,7 +3564,7 @@ static struct ffs_dev *_ffs_get_single_dev(void)
 			return dev;
 	}
 
-	ffs_log("exit");
+	//ffs_log("exit");
 
 	return NULL;
 }
@@ -3573,7 +3576,7 @@ static struct ffs_dev *_ffs_find_dev(const char *name)
 {
 	struct ffs_dev *dev;
 
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	dev = _ffs_get_single_dev();
 	if (dev)
@@ -3581,7 +3584,7 @@ static struct ffs_dev *_ffs_find_dev(const char *name)
 
 	dev = _ffs_do_find_dev(name);
 
-	ffs_log("exit");
+	//ffs_log("exit");
 
 	return dev;
 }
@@ -3706,8 +3709,8 @@ static void ffs_func_unbind(struct usb_configuration *c,
 
 	ENTER();
 
-	ffs_log("enter: state %d setup_state %d flag %lu", ffs->state,
-		ffs->setup_state, ffs->flags);
+	//ffs_log("enter: state %d setup_state %d flag %lu", ffs->state,
+	//	ffs->setup_state, ffs->flags);
 
 	if (ffs->func == func) {
 		ffs_func_eps_disable(func);
@@ -3740,8 +3743,8 @@ static void ffs_func_unbind(struct usb_configuration *c,
 
 	ffs_event_add(ffs, FUNCTIONFS_UNBIND);
 
-	ffs_log("exit: state %d setup_state %d flag %lu", ffs->state,
-	ffs->setup_state, ffs->flags);
+	//ffs_log("exit: state %d setup_state %d flag %lu", ffs->state,
+	//ffs->setup_state, ffs->flags);
 }
 
 static struct usb_function *ffs_alloc(struct usb_function_instance *fi)
@@ -3804,7 +3807,7 @@ static int _ffs_name_dev(struct ffs_dev *dev, const char *name)
 {
 	struct ffs_dev *existing;
 
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	existing = _ffs_do_find_dev(name);
 	if (existing)
@@ -3812,7 +3815,7 @@ static int _ffs_name_dev(struct ffs_dev *dev, const char *name)
 
 	dev->name = name;
 
-	ffs_log("exit");
+	//ffs_log("exit");
 
 	return 0;
 }
@@ -3824,13 +3827,13 @@ int ffs_name_dev(struct ffs_dev *dev, const char *name)
 {
 	int ret;
 
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	ffs_dev_lock();
 	ret = _ffs_name_dev(dev, name);
 	ffs_dev_unlock();
 
-	ffs_log("exit");
+	//ffs_log("exit");
 
 	return ret;
 }
@@ -3840,7 +3843,7 @@ int ffs_single_dev(struct ffs_dev *dev)
 {
 	int ret;
 
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	ret = 0;
 	ffs_dev_lock();
@@ -3852,7 +3855,7 @@ int ffs_single_dev(struct ffs_dev *dev)
 
 	ffs_dev_unlock();
 
-	ffs_log("exit");
+	//ffs_log("exit");
 
 	return ret;
 }
@@ -3864,7 +3867,7 @@ EXPORT_SYMBOL_GPL(ffs_single_dev);
 static void _ffs_free_dev(struct ffs_dev *dev)
 {
 
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	list_del(&dev->entry);
 	if (dev->name_allocated)
@@ -3873,7 +3876,7 @@ static void _ffs_free_dev(struct ffs_dev *dev)
 	if (list_empty(&ffs_devices))
 		functionfs_cleanup();
 
-	ffs_log("exit");
+	//ffs_log("exit");
 }
 
 static void *ffs_acquire_dev(const char *dev_name)
@@ -3882,7 +3885,7 @@ static void *ffs_acquire_dev(const char *dev_name)
 
 	ENTER();
 
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	ffs_dev_lock();
 
@@ -3899,7 +3902,7 @@ static void *ffs_acquire_dev(const char *dev_name)
 
 	ffs_dev_unlock();
 
-	ffs_log("exit");
+	//ffs_log("exit");
 
 	return ffs_dev;
 }
@@ -3910,7 +3913,7 @@ static void ffs_release_dev(struct ffs_data *ffs_data)
 
 	ENTER();
 
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	ffs_dev_lock();
 
@@ -3924,7 +3927,7 @@ static void ffs_release_dev(struct ffs_data *ffs_data)
 
 	ffs_dev_unlock();
 
-	ffs_log("exit");
+	//ffs_log("exit");
 }
 
 static int ffs_ready(struct ffs_data *ffs)
@@ -3934,7 +3937,7 @@ static int ffs_ready(struct ffs_data *ffs)
 
 	ENTER();
 
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	ffs_dev_lock();
 
@@ -3961,7 +3964,7 @@ static int ffs_ready(struct ffs_data *ffs)
 done:
 	ffs_dev_unlock();
 
-	ffs_log("exit");
+	//ffs_log("exit");
 
 	return ret;
 }
@@ -3973,7 +3976,7 @@ static void ffs_closed(struct ffs_data *ffs)
 
 	ENTER();
 
-	ffs_log("enter");
+	//ffs_log("enter");
 
 	ffs_dev_lock();
 
@@ -4008,10 +4011,11 @@ static void ffs_closed(struct ffs_data *ffs)
 	if (test_bit(FFS_FL_BOUND, &ffs->flags)) {
 		unregister_gadget_item(opts->
 			       func_inst.group.cg_item.ci_parent->ci_parent);
-		ffs_log("unreg gadget done");
+		//ffs_log("unreg gadget done");
 	}
 done:
-	ffs_log("exit");
+	//ffs_log("exit");
+	return;
 }
 
 /* Misc helper functions ****************************************************/

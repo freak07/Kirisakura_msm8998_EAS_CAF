@@ -365,7 +365,7 @@ static int qusb_phy_update_dpdm(struct usb_phy *phy, int value)
 	return ret;
 }
 
-static void qusb_phy_get_tune1_param(struct qusb_phy *qphy)
+static void __maybe_unused qusb_phy_get_tune1_param(struct qusb_phy *qphy)
 {
 	u8 reg;
 	u32 bit_mask = 1;
@@ -498,6 +498,7 @@ static int qusb_phy_init(struct usb_phy *phy)
 	if (qphy->qusb_phy_init_seq)
 		qusb_phy_write_seq(qphy->base, qphy->qusb_phy_init_seq,
 				qphy->init_seq_len, 0);
+	/* Remove this part due to we don't need to overwrite this register from efuse.
 	if (qphy->efuse_reg) {
 		if (!qphy->tune_val)
 			qusb_phy_get_tune1_param(qphy);
@@ -506,7 +507,7 @@ static int qusb_phy_init(struct usb_phy *phy)
 				qphy->tune_val);
 		writel_relaxed(qphy->tune_val,
 				qphy->base + QUSB2PHY_PORT_TUNE1);
-	}
+	}*/
 
 	/* If phy_tune1 modparam set, override tune1 value */
 	if (phy_tune1) {

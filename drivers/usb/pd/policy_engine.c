@@ -19,6 +19,8 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_platform.h>
+#include <linux/of_gpio.h>
+#include <linux/gpio.h>
 #include <linux/power_supply.h>
 #include <linux/regulator/consumer.h>
 #include <linux/slab.h>
@@ -27,12 +29,12 @@
 #include <linux/extcon.h>
 #include <linux/usb/class-dual-role.h>
 #include <linux/usb/usbpd.h>
+#include <linux/htc_flags.h>
+#if defined(CONFIG_TUSB1044)
+#include <linux/msm_ext_display.h>
+#endif
 #include "usbpd.h"
-
-/* To start USB stack for USB3.1 complaince testing */
-static bool usb_compliance_mode;
-module_param(usb_compliance_mode, bool, S_IRUGO|S_IWUSR);
-MODULE_PARM_DESC(usb_compliance_mode, "Start USB stack for USB3.1 compliance testing");
+#include "../tusb1044/tusb1044.h"
 
 static bool disable_usb_pd;
 module_param(disable_usb_pd, bool, S_IRUGO|S_IWUSR);
@@ -144,6 +146,8 @@ enum vdm_state {
 	MODE_EXITED,
 };
 
+extern void htc_set_usbmode(bool);
+
 static void *usbpd_ipc_log;
 #define usbpd_dbg(dev, fmt, ...) do { \
 	ipc_log_string(usbpd_ipc_log, "%s: %s: " fmt, dev_name(dev), __func__, \
@@ -195,8 +199,6 @@ static void *usbpd_ipc_log;
 #define PD_CAPS_COUNT		50
 
 #define PD_MAX_MSG_ID		7
-
-#define PD_MAX_DATA_OBJ		7
 
 #define PD_MSG_HDR(type, dr, pr, id, cnt, rev) \
 	(((type) & 0xF) | ((dr) << 5) | (rev << 6) | \
@@ -281,14 +283,18 @@ static void *usbpd_ipc_log;
 #define ID_HDR_VID		0x05c6 /* qcom */
 #define PROD_VDO_PID		0x0a00 /* TBD */
 
+#define AUDIO_DETECT "htc,mbhc_hsdet_l"
 static bool check_vsafe0v = true;
 module_param(check_vsafe0v, bool, S_IRUSR | S_IWUSR);
 
 static int min_sink_current = 900;
 module_param(min_sink_current, int, S_IRUSR | S_IWUSR);
 
-static const u32 default_src_caps[] = { 0x36019096 };	/* VSafe5V @ 1.5A */
+//static const u32 default_src_caps[] = { 0x36019096 };	/* VSafe5V @ 1.5A */
+static const u32 default_src_caps[] = { 0x3601905A };	/* VSafe5V @ 0.9A */
 static const u32 default_snk_caps[] = { 0x2601912C };	/* VSafe5V @ 3A */
+
+static int send_src_cap_count = 0;
 
 struct vdm_tx {
 	u32			data[7];
@@ -309,6 +315,7 @@ struct usbpd {
 	struct device		dev;
 	struct workqueue_struct	*wq;
 	struct work_struct	sm_work;
+	struct delayed_work	recovery_work;
 	struct hrtimer		timer;
 	bool			sm_queued;
 
@@ -319,7 +326,7 @@ struct usbpd {
 	struct list_head	rx_q;
 	spinlock_t		rx_lock;
 
-	u32			received_pdos[PD_MAX_DATA_OBJ];
+	u32			received_pdos[7];
 	u16			src_cap_id;
 	u8			selected_pdo;
 	u8			requested_pdo;
@@ -337,6 +344,7 @@ struct usbpd {
 	int			num_sink_caps;
 
 	struct power_supply	*usb_psy;
+	struct power_supply     *batt_psy;
 	struct notifier_block	psy_nb;
 
 	enum power_supply_typec_mode typec_mode;
@@ -358,11 +366,20 @@ struct usbpd {
 	bool			send_pr_swap;
 	bool			send_dr_swap;
 
+	bool			in_dr_swap_dfp;
+	bool			typec_enable;
+
 	struct regulator	*vbus;
 	struct regulator	*vconn;
 	bool			vbus_enabled;
 	bool			vconn_enabled;
 	bool			vconn_is_external;
+	int			trx_state;
+
+	bool			audio_enabled;
+	struct pinctrl		*pinctrl;
+	struct pinctrl_state    *pinctrl_active;
+	struct pinctrl_state    *pinctrl_sleep;
 
 	u8			tx_msgid;
 	u8			rx_msgid;
@@ -391,6 +408,22 @@ static const unsigned int usbpd_extcon_cable[] = {
 
 /* EXTCON_USB and EXTCON_USB_HOST are mutually exclusive */
 static const u32 usbpd_extcon_exclusive[] = {0x3, 0};
+
+static struct usbpd* gpd = NULL;
+
+static void usbpd_audio_accessory(struct usbpd *pd, bool attach)
+{
+	struct pinctrl_state *pinctrl_state = attach ? pd->pinctrl_active: pd->pinctrl_sleep;
+	int ret = 0;
+
+	pd->audio_enabled = attach;
+	ret = pinctrl_select_state(pd->pinctrl, pinctrl_state);
+	if (ret < 0) {
+		usbpd_err(&pd->dev, "%s - Error: pinctrl audio set state failed:%d\n", __func__, ret);
+	}
+	usbpd_info(&pd->dev, "%s: audio detect state:%s\n", __func__, attach?"active":"sleep");
+	return;
+}
 
 enum plug_orientation usbpd_get_plug_orientation(struct usbpd *pd)
 {
@@ -423,6 +456,7 @@ static inline void start_usb_host(struct usbpd *pd, bool ss)
 
 static inline void stop_usb_peripheral(struct usbpd *pd)
 {
+	htc_set_usbmode(false);
 	extcon_set_cable_state_(pd->extcon, EXTCON_USB, 0);
 }
 
@@ -430,6 +464,7 @@ static inline void start_usb_peripheral(struct usbpd *pd)
 {
 	enum plug_orientation cc = usbpd_get_plug_orientation(pd);
 
+	htc_set_usbmode(true);
 	extcon_set_cable_state_(pd->extcon, EXTCON_USB_CC,
 			cc == ORIENTATION_CC2);
 	extcon_set_cable_state_(pd->extcon, EXTCON_USB_SPEED, 1);
@@ -557,9 +592,12 @@ static int pd_select_pdo(struct usbpd *pd, int pdo_pos, int uv, int ua)
 
 static int pd_eval_src_caps(struct usbpd *pd)
 {
-	int obj_cnt;
 	union power_supply_propval val;
 	u32 first_pdo = pd->received_pdos[0];
+	int i = 0, sel_index = 0;
+	u32 pdo;
+	u32 pdo_vol = 0, pdo_curr = 0, sel_vol = 0, sel_curr = 0;
+	u64 pdo_watt = 0, max_watt = 0;
 
 	if (PD_SRC_PDO_TYPE(first_pdo) != PD_SRC_PDO_TYPE_FIXED) {
 		usbpd_err(&pd->dev, "First src_cap invalid! %08x\n", first_pdo);
@@ -574,15 +612,30 @@ static int pd_eval_src_caps(struct usbpd *pd)
 	power_supply_set_property(pd->usb_psy,
 			POWER_SUPPLY_PROP_PD_USB_SUSPEND_SUPPORTED, &val);
 
-	for (obj_cnt = 1; obj_cnt < PD_MAX_DATA_OBJ; obj_cnt++) {
-		if ((PD_SRC_PDO_TYPE(pd->received_pdos[obj_cnt]) ==
-					PD_SRC_PDO_TYPE_AUGMENTED) &&
-				!PD_APDO_PPS(pd->received_pdos[obj_cnt]))
-			pd->spec_rev = USBPD_REV_30;
+	for (i = 0; i < ARRAY_SIZE(pd->received_pdos); i++) {
+		pdo = pd->received_pdos[i];
+		if (pdo == 0)
+			break;
+
+		if (PD_SRC_PDO_TYPE(pdo) == PD_SRC_PDO_TYPE_FIXED) {
+			pdo_vol = PD_SRC_PDO_FIXED_VOLTAGE(pdo) * 50;
+			if (pdo_vol > 9000)
+				break;
+			pdo_curr = PD_SRC_PDO_FIXED_MAX_CURR(pdo) * 10;
+			pdo_watt = pdo_vol * pdo_curr;
+
+			if (pdo_watt >= max_watt) {
+				max_watt = pdo_watt;
+				sel_index = i;
+				sel_vol = pdo_vol;
+				sel_curr = pdo_curr;
+			}
+		}
+		/* TODO: augmented PDO support */
 	}
 
-	/* Select the first PDO (vSafe5V) immediately. */
-	pd_select_pdo(pd, 1, 0, 0);
+	usbpd_warn(&pd->dev, "show the cap: vol:%d, curr:%d\n", sel_vol, sel_curr);
+	pd_select_pdo(pd, sel_index+1, 0, 0);
 
 	return 0;
 }
@@ -679,6 +732,12 @@ static void phy_msg_received(struct usbpd *pd, enum pd_msg_type type,
 		return;
 	}
 
+	/* if spec rev differs (i.e. is older), update PHY */
+	if (PD_MSG_HDR_REV(header) < pd->spec_rev) {
+		pd->spec_rev = PD_MSG_HDR_REV(header);
+		pd_phy_update_spec_rev(pd->spec_rev);
+	}
+
 	rx_msg = kzalloc(sizeof(*rx_msg), GFP_KERNEL);
 	if (!rx_msg)
 		return;
@@ -721,10 +780,11 @@ static void usbpd_set_state(struct usbpd *pd, enum usbpd_state next_state)
 		.shutdown_cb		= phy_shutdown,
 		.frame_filter_val	= FRAME_FILTER_EN_SOP |
 					  FRAME_FILTER_EN_HARD_RESET,
+		.spec_rev		= USBPD_REV_20,
 	};
 	union power_supply_propval val = {0};
 	unsigned long flags;
-	int ret;
+	int ret, i = 0;
 
 	usbpd_dbg(&pd->dev, "%s -> %s\n",
 			usbpd_state_strings[pd->current_state],
@@ -760,6 +820,11 @@ static void usbpd_set_state(struct usbpd *pd, enum usbpd_state next_state)
 			 */
 		}
 
+		if (pd->trx_state != CC_STATE_USB3) {
+			tusb1044_update_state(CC_STATE_USB3, usbpd_get_plug_orientation(pd));
+			pd->trx_state = CC_STATE_USB3;
+		}
+
 		dual_role_instance_changed(pd->dual_role);
 
 		/* Set CC back to DRP toggle for the next disconnect */
@@ -767,6 +832,8 @@ static void usbpd_set_state(struct usbpd *pd, enum usbpd_state next_state)
 		power_supply_set_property(pd->usb_psy,
 				POWER_SUPPLY_PROP_TYPEC_POWER_ROLE, &val);
 
+		/* support only PD 2.0 as a source */
+		pd->spec_rev = USBPD_REV_20;
 		pd_reset_protocol(pd);
 
 		if (!pd->in_pr_swap) {
@@ -777,6 +844,7 @@ static void usbpd_set_state(struct usbpd *pd, enum usbpd_state next_state)
 
 			phy_params.data_role = pd->current_dr;
 			phy_params.power_role = pd->current_pr;
+			phy_params.spec_rev = pd->spec_rev;
 
 			ret = pd_phy_open(&phy_params);
 			if (ret) {
@@ -788,6 +856,8 @@ static void usbpd_set_state(struct usbpd *pd, enum usbpd_state next_state)
 			}
 
 			pd->pd_phy_opened = true;
+		} else {
+			pd_phy_update_spec_rev(pd->spec_rev);
 		}
 
 		if (pd->in_pr_swap) {
@@ -834,13 +904,24 @@ static void usbpd_set_state(struct usbpd *pd, enum usbpd_state next_state)
 
 			if (pd->in_explicit_contract)
 				usbpd_set_state(pd, PE_SRC_READY);
-			else
+			else {
 				/*
 				 * bypass PE_SRC_Capability_Response and
 				 * PE_SRC_Wait_New_Capabilities in this
 				 * implementation for simplicity.
 				 */
-				usbpd_set_state(pd, PE_SRC_SEND_CAPABILITIES);
+				/* HTC: add max retry mechanism; retry 3 times and go to SRC_READY */
+				if (send_src_cap_count < 3) {
+					usbpd_set_state(pd, PE_SRC_SEND_CAPABILITIES);
+					send_src_cap_count++;
+					usbpd_dbg(&pd->dev, "send_src_cap_count: %d\n", send_src_cap_count);
+				}
+				else {
+					usbpd_set_state(pd, PE_SRC_READY);
+					send_src_cap_count = 0;
+					usbpd_dbg(&pd->dev, "reset send_src_cap_count, goto SRC_READY\n");
+				}
+			}
 			break;
 		}
 
@@ -869,6 +950,7 @@ static void usbpd_set_state(struct usbpd *pd, enum usbpd_state next_state)
 		}
 
 		usbpd_set_state(pd, PE_SRC_READY);
+		send_src_cap_count = 0;
 		break;
 
 	case PE_SRC_READY:
@@ -915,14 +997,35 @@ static void usbpd_set_state(struct usbpd *pd, enum usbpd_state next_state)
 
 	/* Sink states */
 	case PE_SNK_STARTUP:
+		if (pd->trx_state != CC_STATE_USB3) {
+			tusb1044_update_state(CC_STATE_USB3, usbpd_get_plug_orientation(pd));
+			pd->trx_state = CC_STATE_USB3;
+		}
+
 		if (pd->current_dr == DR_NONE || pd->current_dr == DR_UFP) {
 			pd->current_dr = DR_UFP;
 
-			if (pd->psy_type == POWER_SUPPLY_TYPE_USB ||
-				pd->psy_type == POWER_SUPPLY_TYPE_USB_CDP ||
-				pd->psy_type == POWER_SUPPLY_TYPE_USB_FLOAT ||
-				usb_compliance_mode)
-				start_usb_peripheral(pd);
+			for (i = 0; i < 15; i++) {
+				if (pd->psy_type == POWER_SUPPLY_TYPE_USB ||
+					pd->psy_type == POWER_SUPPLY_TYPE_USB_CDP) {
+					usbpd_warn(&pd->dev, "start usb peripheral\n");
+					start_usb_peripheral(pd);
+					break;
+				} else {
+					if (pd->psy_type == POWER_SUPPLY_TYPE_UNKNOWN) {
+						msleep(100);
+						ret = power_supply_get_property(pd->usb_psy,
+								POWER_SUPPLY_PROP_TYPE, &val);
+						if (ret) {
+							usbpd_err(&pd->dev, "Unable to read USB TYPE: %d\n", ret);
+							continue;
+						}
+						pd->psy_type = val.intval;
+						usbpd_info(&pd->dev, "i:%d, re-get POWER_SUPPLY_PROP_TYPE: %d\n", i, pd->psy_type);
+					} else
+						break;
+				}
+			}
 		}
 
 		dual_role_instance_changed(pd->dual_role);
@@ -938,6 +1041,11 @@ static void usbpd_set_state(struct usbpd *pd, enum usbpd_state next_state)
 		if (!val.intval || disable_usb_pd)
 			break;
 
+		/*
+		 * support up to PD 3.0 as a sink; if source is 2.0,
+		 * phy_msg_received() will handle the downgrade.
+		 */
+		pd->spec_rev = USBPD_REV_30;
 		pd_reset_protocol(pd);
 
 		if (!pd->in_pr_swap) {
@@ -948,6 +1056,7 @@ static void usbpd_set_state(struct usbpd *pd, enum usbpd_state next_state)
 
 			phy_params.data_role = pd->current_dr;
 			phy_params.power_role = pd->current_pr;
+			phy_params.spec_rev = pd->spec_rev;
 
 			ret = pd_phy_open(&phy_params);
 			if (ret) {
@@ -959,6 +1068,8 @@ static void usbpd_set_state(struct usbpd *pd, enum usbpd_state next_state)
 			}
 
 			pd->pd_phy_opened = true;
+		} else {
+			pd_phy_update_spec_rev(pd->spec_rev);
 		}
 
 		pd->current_voltage = pd->requested_voltage = 5000000;
@@ -1102,6 +1213,55 @@ void usbpd_unregister_svid(struct usbpd *pd, struct usbpd_svid_handler *hdlr)
 }
 EXPORT_SYMBOL(usbpd_unregister_svid);
 
+void htc_pd_controller_restart_work(struct work_struct *w)
+{
+	struct usbpd *pd = container_of(w, struct usbpd, recovery_work.work);
+	usbpd_info(&pd->dev,"trigger error recovery state\n");
+	usbpd_set_state(pd, PE_ERROR_RECOVERY);
+	return;
+}
+
+void htc_pd_controller_restart(void)
+{
+	struct usbpd *pd = gpd;
+	if (!pd)
+		return;
+	queue_delayed_work(pd->wq, &pd->recovery_work, 1*HZ);
+	return;
+
+}
+EXPORT_SYMBOL(htc_pd_controller_restart);
+
+#if defined(CONFIG_TUSB1044)
+int htc_pd_redriver_control(int status)
+{
+	struct usbpd *pd = gpd;
+	if (!pd)
+		return -EINVAL;
+
+	if (status == 1 && pd->trx_state != CC_STATE_DP) {
+		tusb1044_update_state(CC_STATE_DP, usbpd_get_plug_orientation(pd));
+		pd->trx_state = CC_STATE_DP;
+	} else if(status == 0 && pd->trx_state != CC_STATE_OPEN) {
+		tusb1044_update_state(CC_STATE_OPEN, CC_ORIENTATION_NONE);
+		pd->trx_state = CC_STATE_OPEN;
+	}
+
+	return 0;
+}
+#endif
+
+void htc_typec_enable(bool enable)
+{
+	struct usbpd *pd = gpd;
+	if (!pd)
+		return;
+	pd->typec_enable = enable;
+	usbpd_set_state(pd, PE_ERROR_RECOVERY);
+	return;
+}
+EXPORT_SYMBOL(htc_typec_enable);
+
 int usbpd_send_vdm(struct usbpd *pd, u32 vdm_hdr, const u32 *vdos, int num_vdos)
 {
 	struct vdm_tx *vdm_tx;
@@ -1173,6 +1333,14 @@ static void handle_vdm_rx(struct usbpd *pd, struct rx_msg *rx_msg)
 
 		kfree(pd->vdm_tx);
 		pd->vdm_tx = NULL;
+	}
+
+	if (cmd_type == SVDM_CMD_TYPE_RESP_ACK && cmd == USBPD_SVDM_ENTER_MODE) {
+		usbpd_err(&pd->dev, "svdm enter mode, switch USB3 to DP.\n");
+		if (pd->trx_state != CC_STATE_DP) {
+			tusb1044_update_state(CC_STATE_DP, usbpd_get_plug_orientation(pd));
+			pd->trx_state = CC_STATE_DP;
+		}
 	}
 
 	if (handler && handler->svdm_received) {
@@ -1310,7 +1478,10 @@ static void handle_vdm_rx(struct usbpd *pd, struct rx_msg *rx_msg)
 			 * if DisplayPort mode is present or not and limit USB
 			 * to HS-only mode if so.
 			 */
-			start_usb_host(pd, !has_dp);
+			if (pd->in_dr_swap_dfp == 0)
+				//start_usb_host(pd, !has_dp);
+				start_usb_host(pd, 0);
+			pd->in_dr_swap_dfp = 0;
 
 			break;
 
@@ -1328,7 +1499,9 @@ static void handle_vdm_rx(struct usbpd *pd, struct rx_msg *rx_msg)
 		switch (cmd) {
 		case USBPD_SVDM_DISCOVER_IDENTITY:
 		case USBPD_SVDM_DISCOVER_SVIDS:
-			start_usb_host(pd, true);
+			if (pd->in_dr_swap_dfp == 0)
+				start_usb_host(pd, 0);
+			pd->in_dr_swap_dfp = 0;
 			break;
 		default:
 			break;
@@ -1418,6 +1591,7 @@ static void reset_vdm_state(struct usbpd *pd)
 
 	list_for_each_entry(handler, &pd->svid_handlers, entry) {
 		if (handler->discovered) {
+			usbpd_warn(&pd->dev, "DP disconnected\n");
 			handler->disconnect(handler);
 			handler->discovered = false;
 		}
@@ -1448,6 +1622,10 @@ static void dr_swap(struct usbpd *pd)
 		/* don't start USB host until after SVDM discovery */
 		usbpd_send_svdm(pd, USBPD_SID, USBPD_SVDM_DISCOVER_IDENTITY,
 				SVDM_CMD_TYPE_INITIATOR, 0, NULL, 0);
+
+		/* HTC: start USB host now in case VDM fails */
+		pd->in_dr_swap_dfp = 1;
+		start_usb_host(pd, 0);
 	}
 
 	pd_phy_update_roles(pd->current_dr, pd->current_pr);
@@ -1570,15 +1748,16 @@ static void usbpd_sm(struct work_struct *w)
 
 	/* Disconnect? */
 	if (pd->current_pr == PR_NONE) {
-		if (pd->current_state == PE_UNKNOWN)
+		if (pd->current_state == PE_UNKNOWN) {
+			if (pd->typec_mode == POWER_SUPPLY_TYPEC_SINK_AUDIO_ADAPTER) {
+				usbpd_audio_accessory(pd, true);
+			} else if (pd->audio_enabled && pd->typec_mode == POWER_SUPPLY_TYPEC_NONE) {
+				usbpd_audio_accessory(pd, false);
+			}
 			goto sm_done;
-
-		if (pd->vconn_enabled) {
-			regulator_disable(pd->vconn);
-			pd->vconn_enabled = false;
 		}
 
-		usbpd_info(&pd->dev, "USB Type-C disconnect\n");
+		usbpd_err(&pd->dev, "USB Type-C disconnect\n");
 
 		if (pd->pd_phy_opened) {
 			pd_phy_close();
@@ -1610,6 +1789,24 @@ static void usbpd_sm(struct work_struct *w)
 		if (pd->vbus_enabled) {
 			regulator_disable(pd->vbus);
 			pd->vbus_enabled = false;
+		} else {
+			ret = power_supply_get_property(pd->usb_psy,
+					POWER_SUPPLY_PROP_OTG_STATE, &val);
+			if (val.intval == 1) { // val.intval = 1 means vbus still output 5V
+				power_supply_set_property(pd->usb_psy,
+					POWER_SUPPLY_PROP_OTG_STATE, &val);
+				pd->vbus_enabled = false;
+			}
+		}
+
+		val.intval = 0;
+		power_supply_set_property(pd->usb_psy, POWER_SUPPLY_PROP_EXT_OTG_CONTROL, &val);
+		send_src_cap_count = 0;
+		pd->in_dr_swap_dfp = 0;
+
+		if (pd->vconn_enabled) {
+			regulator_disable(pd->vconn);
+			pd->vconn_enabled = false;
 		}
 
 		if (pd->current_dr == DR_UFP)
@@ -1620,6 +1817,7 @@ static void usbpd_sm(struct work_struct *w)
 		pd->current_dr = DR_NONE;
 
 		reset_vdm_state(pd);
+		pd->trx_state = CC_STATE_OPEN;
 
 		if (pd->current_state == PE_ERROR_RECOVERY)
 			/* forced disconnect, wait before resetting to DRP */
@@ -1633,15 +1831,21 @@ static void usbpd_sm(struct work_struct *w)
 		/* set due to dual_role class "mode" change */
 		if (pd->forced_pr != POWER_SUPPLY_TYPEC_PR_NONE)
 			val.intval = pd->forced_pr;
-		else
-			/* Set CC back to DRP toggle */
-			val.intval = POWER_SUPPLY_TYPEC_PR_DUAL;
+		else {
+			if (pd->typec_enable)
+				/* Set CC back to DRP toggle */
+				val.intval = POWER_SUPPLY_TYPEC_PR_DUAL;
+			else
+				usbpd_err(&pd->dev, "Type-C is disabled\n");
+		}
 
 		power_supply_set_property(pd->usb_psy,
 				POWER_SUPPLY_PROP_TYPEC_POWER_ROLE, &val);
 		pd->forced_pr = POWER_SUPPLY_TYPEC_PR_NONE;
 
 		pd->current_state = PE_UNKNOWN;
+
+		tusb1044_update_state(CC_STATE_OPEN, CC_ORIENTATION_NONE);
 
 		kobject_uevent(&pd->dev.kobj, KOBJ_CHANGE);
 		dual_role_instance_changed(pd->dual_role);
@@ -1701,6 +1905,23 @@ static void usbpd_sm(struct work_struct *w)
 		if (pd->current_pr == PR_SINK) {
 			usbpd_set_state(pd, PE_SNK_STARTUP);
 		} else if (pd->current_pr == PR_SRC) {
+			//enable vbus and TPS61099
+			enable_vbus(pd);
+
+			if (!pd->batt_psy) {
+				pd->batt_psy = power_supply_get_by_name("battery");
+				if (!pd->batt_psy)
+					usbpd_err(&pd->dev, "Unable to get battery power_supply\n");
+			}
+
+			if (pd->batt_psy) {
+				val.intval = 0;
+				power_supply_set_property(pd->batt_psy, POWER_SUPPLY_PROP_EXT_OTG_CHG_CONTROL, &val);
+			}
+
+			val.intval = 1;
+			power_supply_set_property(pd->usb_psy, POWER_SUPPLY_PROP_EXT_OTG_CONTROL, &val);
+
 			if (!pd->vconn_enabled &&
 					pd->typec_mode ==
 					POWER_SUPPLY_TYPEC_SINK_POWERED_CABLE) {
@@ -1710,13 +1931,16 @@ static void usbpd_sm(struct work_struct *w)
 				else
 					pd->vconn_enabled = true;
 			}
-			enable_vbus(pd);
 
 			usbpd_set_state(pd, PE_SRC_STARTUP);
 		}
 		break;
 
 	case PE_SRC_STARTUP:
+		if (pd->trx_state != CC_STATE_USB3) {
+			tusb1044_update_state(CC_STATE_USB3, usbpd_get_plug_orientation(pd));
+			pd->trx_state = CC_STATE_USB3;
+		}
 		usbpd_set_state(pd, PE_SRC_STARTUP);
 		break;
 
@@ -1728,15 +1952,34 @@ static void usbpd_sm(struct work_struct *w)
 
 			if (pd->caps_count == 10 && pd->current_dr == DR_DFP) {
 				/* Likely not PD-capable, start host now */
-				start_usb_host(pd, true);
+				/* HTC: do we need to check in_dr_swap_dfp here? */
+				start_usb_host(pd, 0);
 			} else if (pd->caps_count >= PD_CAPS_COUNT) {
-				usbpd_dbg(&pd->dev, "Src CapsCounter exceeded, disabling PD\n");
-				usbpd_set_state(pd, PE_SRC_DISABLED);
+				/* HTC: second chance for specific DP-to-HDMI dongle */
+				if (ret == -EBUSY) {
+					usbpd_warn(&pd->dev, "advance to send_cap_wait\n");
+					pd->caps_count = 0;
+					pd->hard_reset_count = 0;
+					pd->pd_connected = true; /* we know peer is PD capable */
 
-				val.intval = 0;
-				power_supply_set_property(pd->usb_psy,
-						POWER_SUPPLY_PROP_PD_ACTIVE,
-						&val);
+					/* wait for REQUEST */
+					pd->current_state = PE_SRC_SEND_CAPABILITIES_WAIT;
+					kick_sm(pd, SENDER_RESPONSE_TIME);
+
+					val.intval = 1;
+					power_supply_set_property(pd->usb_psy,
+							POWER_SUPPLY_PROP_PD_ACTIVE, &val);
+					break;
+				}
+				else {
+					usbpd_dbg(&pd->dev, "Src CapsCounter exceeded, disabling PD\n");
+					usbpd_set_state(pd, PE_SRC_DISABLED);
+
+					val.intval = 0;
+					power_supply_set_property(pd->usb_psy,
+							POWER_SUPPLY_PROP_PD_ACTIVE,
+							&val);
+				}
 				break;
 			}
 
@@ -1858,6 +2101,10 @@ static void usbpd_sm(struct work_struct *w)
 		if (pd->vbus_enabled)
 			regulator_disable(pd->vbus);
 
+		//turn off external vbus
+		val.intval = 0;
+		power_supply_set_property(pd->usb_psy, POWER_SUPPLY_PROP_EXT_OTG_CONTROL, &val);
+
 		if (pd->current_dr != DR_DFP) {
 			extcon_set_cable_state_(pd->extcon, EXTCON_USB, 0);
 			pd->current_dr = DR_DFP;
@@ -1901,6 +2148,10 @@ static void usbpd_sm(struct work_struct *w)
 		break;
 
 	case PE_SNK_STARTUP:
+		if (pd->trx_state != CC_STATE_USB3) {
+			tusb1044_update_state(CC_STATE_USB3, usbpd_get_plug_orientation(pd));
+			pd->trx_state = CC_STATE_USB3;
+		}
 		usbpd_set_state(pd, PE_SNK_STARTUP);
 		break;
 
@@ -2257,13 +2508,19 @@ static void usbpd_sm(struct work_struct *w)
 			pd->vbus_enabled = false;
 		}
 
+		//turn off external vbus
+		val.intval = 0;
+		power_supply_set_property(pd->usb_psy, POWER_SUPPLY_PROP_EXT_OTG_CONTROL, &val);
+
 		/* PE_PRS_SRC_SNK_Assert_Rd */
 		pd->current_pr = PR_SINK;
 		set_power_role(pd, pd->current_pr);
 		pd_phy_update_roles(pd->current_dr, pd->current_pr);
 
 		/* allow time for Vbus discharge, must be < tSrcSwapStdby */
-		msleep(500);
+		// WORKAROUND to FIX POWER ROLE SWAP
+		// change 500ms to 100ms
+		msleep(100);
 
 		ret = pd_send_msg(pd, MSG_PS_RDY, NULL, 0, SOP_MSG);
 		if (ret) {
@@ -2420,7 +2677,7 @@ static int psy_changed(struct notifier_block *nb, unsigned long evt, void *ptr)
 	pd->vbus_present = val.intval;
 
 	ret = power_supply_get_property(pd->usb_psy,
-			POWER_SUPPLY_PROP_REAL_TYPE, &val);
+			POWER_SUPPLY_PROP_TYPE, &val);
 	if (ret) {
 		usbpd_err(&pd->dev, "Unable to read USB TYPE: %d\n", ret);
 		return ret;
@@ -2445,6 +2702,11 @@ static int psy_changed(struct notifier_block *nb, unsigned long evt, void *ptr)
 
 	if (pd->typec_mode == typec_mode)
 		return 0;
+
+	if ((typec_mode == POWER_SUPPLY_TYPEC_SINK || typec_mode == POWER_SUPPLY_TYPEC_SINK_POWERED_CABLE)
+			&& !strncmp(htc_get_bootmode(), "offmode_charging", 16)) {
+		return 0;
+	}
 
 	pd->typec_mode = typec_mode;
 
@@ -3129,6 +3391,77 @@ static ssize_t hard_reset_store(struct device *dev,
 }
 static DEVICE_ATTR_WO(hard_reset);
 
+static ssize_t vconn_en_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t size)
+{
+	struct usbpd *pd = dev_get_drvdata(dev);
+	int val = 0, ret = 0;
+	union power_supply_propval pval = {0};
+
+	if (sscanf(buf, "%d\n", &val) != 1) {
+		usbpd_err(&pd->dev, "please set 1/2 or 0 to enable/disable vconn\n");
+		return -EINVAL;
+	};
+
+	if (val == usbpd_get_plug_orientation(pd)) {
+		printk("please enter other CC number for vconn enabled\n");
+		return -EINVAL;
+	}
+	pval.intval = val;
+	if (val == 1 || val == 2) {
+		if (!pd->vconn_enabled) {
+			power_supply_set_property(pd->usb_psy, POWER_SUPPLY_PROP_VCONN_SEL, &pval);
+			ret = regulator_enable(pd->vconn);
+			pd->vconn_enabled = true;
+			if (ret < 0) {
+				usbpd_err(&pd->dev, "Unable to enable vconn\n");
+				pd->vconn_enabled = false;
+				pval.intval = 0;
+				power_supply_set_property(pd->usb_psy, POWER_SUPPLY_PROP_VCONN_SEL, &pval);
+			}
+		} else
+			usbpd_err(&pd->dev, "vconn is already enabled\n");
+	} else if (val == 0) {
+		if (pd->vconn_enabled) {
+			power_supply_set_property(pd->usb_psy, POWER_SUPPLY_PROP_VCONN_SEL, &pval);
+			ret = regulator_disable(pd->vconn);
+			pd->vconn_enabled = false;
+			if (ret) {
+				usbpd_err(&pd->dev, "Unable to disable vconn\n");
+				pd->vconn_enabled = true;
+			}
+		} else
+			usbpd_err(&pd->dev, "vconn is already disabled\n");
+	}
+
+	return size;
+}
+static DEVICE_ATTR_WO(vconn_en);
+
+static ssize_t typec_enable_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct usbpd *pd = dev_get_drvdata(dev);
+
+	return snprintf(buf, PAGE_SIZE, "%d\n", pd->typec_enable);
+}
+
+static ssize_t typec_enable_store(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t size)
+{
+	struct usbpd *pd = dev_get_drvdata(dev);
+	int val = 0;
+
+	if (sscanf(buf, "%d\n", &val) != 1)
+		return -EINVAL;
+
+	pd->typec_enable = !!val;
+	usbpd_set_state(pd, PE_ERROR_RECOVERY);
+
+	return size;
+}
+static DEVICE_ATTR_RW(typec_enable);
+
 static struct attribute *usbpd_attrs[] = {
 	&dev_attr_contract.attr,
 	&dev_attr_initial_pr.attr,
@@ -3148,6 +3481,8 @@ static struct attribute *usbpd_attrs[] = {
 	&dev_attr_rdo.attr,
 	&dev_attr_rdo_h.attr,
 	&dev_attr_hard_reset.attr,
+	&dev_attr_vconn_en.attr,
+	&dev_attr_typec_enable.attr,
 	NULL,
 };
 ATTRIBUTE_GROUPS(usbpd);
@@ -3213,6 +3548,9 @@ struct usbpd *devm_usbpd_get_by_phandle(struct device *dev, const char *phandle)
 
 	*ptr = pd;
 	devres_add(dev, ptr);
+#if defined(CONFIG_TUSB1044)
+	register_htc_dp_hpd_notify(&htc_pd_redriver_control);
+#endif
 
 	return pd;
 }
@@ -3234,6 +3572,11 @@ struct usbpd *usbpd_create(struct device *parent)
 {
 	int ret;
 	struct usbpd *pd;
+	struct pinctrl *pinctrl;
+	struct pinctrl_state *pinctrl_sleep;
+	struct pinctrl_state *pinctrl_active;
+	struct pinctrl_state *pinctrl_usbpd_usbc_int_n;
+	struct pinctrl_state *pinctrl_usbpd_cc_dir;
 
 	pd = kzalloc(sizeof(*pd), GFP_KERNEL);
 	if (!pd)
@@ -3262,6 +3605,7 @@ struct usbpd *usbpd_create(struct device *parent)
 		goto del_pd;
 	}
 	INIT_WORK(&pd->sm_work, usbpd_sm);
+	INIT_DELAYED_WORK(&pd->recovery_work, htc_pd_controller_restart_work);
 	hrtimer_init(&pd->timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	pd->timer.function = pd_timeout;
 	mutex_init(&pd->swap_lock);
@@ -3302,6 +3646,66 @@ struct usbpd *usbpd_create(struct device *parent)
 		ret = PTR_ERR(pd->vconn);
 		goto put_psy;
 	}
+
+	pd->audio_enabled = false;
+	pd->typec_enable = true;
+
+	pinctrl = devm_pinctrl_get(parent);
+	if (IS_ERR(pinctrl)) {
+		usbpd_err(&pd->dev, "failed to get audio pinctrl\n");
+		goto put_psy;
+	}
+
+	pinctrl_sleep = pinctrl_lookup_state(pinctrl, "pin_sleep");
+	if (IS_ERR(pinctrl_sleep)) {
+		usbpd_err(&pd->dev, "failed to get pin sleep pinctrl, err=%ld\n", PTR_ERR(pinctrl_sleep));
+		goto put_psy;
+	}
+
+	ret = pinctrl_select_state(pinctrl, pinctrl_sleep);
+	if (ret < 0) {
+		usbpd_err(&pd->dev, "failed to init audio pin state, err=%d\n", ret);
+		goto put_psy;
+	} else
+		usbpd_info(&pd->dev, "init audio detect pin state to high\n");
+
+	pinctrl_active = pinctrl_lookup_state(pinctrl, "pin_active");
+	if (IS_ERR(pinctrl_active)) {
+		usbpd_err(&pd->dev, "failed to get pin active pinctrl, err=%ld\n", PTR_ERR(pinctrl_active));
+		goto put_psy;
+	}
+
+	pinctrl_usbpd_usbc_int_n = pinctrl_lookup_state(pinctrl, "usbpd_usbc_int_n");
+	if (IS_ERR(pinctrl_usbpd_usbc_int_n)) {
+		usbpd_err(&pd->dev, "failed to get usbpd_usbc_int_n pinctrl, err=%ld\n", PTR_ERR(pinctrl_usbpd_usbc_int_n));
+		goto put_psy;
+	}
+
+	ret = pinctrl_select_state(pinctrl, pinctrl_usbpd_usbc_int_n);
+	if (ret < 0) {
+		usbpd_err(&pd->dev, "failed to init usbpd_usbc_int_n pin state, err=%d\n", ret);
+		goto put_psy;
+	} else
+		usbpd_info(&pd->dev, "init usbpd_usb_int_n pin state to down\n");
+
+	pinctrl_usbpd_cc_dir = pinctrl_lookup_state(pinctrl, "usbpd_cc_dir");
+	if (IS_ERR(pinctrl_usbpd_cc_dir)) {
+		usbpd_err(&pd->dev, "failed to get usbpd_cc_dir pinctrl, err=%ld\n", PTR_ERR(pinctrl_usbpd_cc_dir));
+		goto put_psy;
+	}
+
+	ret = pinctrl_select_state(pinctrl, pinctrl_usbpd_cc_dir);
+	if (ret < 0) {
+		usbpd_err(&pd->dev, "failed to init usbpd_cc_dir pin state, err=%d\n", ret);
+		goto put_psy;
+	} else
+		usbpd_info(&pd->dev, "init usbpd_cc_dir pin state to down\n");
+
+	pd->pinctrl = pinctrl;
+	pd->pinctrl_sleep = pinctrl_sleep;
+	pd->pinctrl_active = pinctrl_active;
+
+	pd->trx_state = CC_STATE_OPEN;
 
 	pd->vconn_is_external = device_property_present(parent,
 					"qcom,vconn-uses-external-source");
@@ -3368,8 +3772,6 @@ struct usbpd *usbpd_create(struct device *parent)
 		pd->dual_role->drv_data = pd;
 	}
 
-	/* default support as PD 2.0 source or sink */
-	pd->spec_rev = USBPD_REV_20;
 	pd->current_pr = PR_NONE;
 	pd->current_dr = DR_NONE;
 	list_add_tail(&pd->instance, &_usbpd);
@@ -3384,6 +3786,7 @@ struct usbpd *usbpd_create(struct device *parent)
 	if (ret)
 		goto del_inst;
 
+	gpd = pd;
 	/* force read initial power_supply values */
 	psy_changed(&pd->psy_nb, PSY_EVENT_PROP_CHANGED, pd->usb_psy);
 
@@ -3419,6 +3822,7 @@ void usbpd_destroy(struct usbpd *pd)
 	destroy_workqueue(pd->wq);
 	device_del(&pd->dev);
 	kfree(pd);
+	gpd = NULL;
 }
 EXPORT_SYMBOL(usbpd_destroy);
 
