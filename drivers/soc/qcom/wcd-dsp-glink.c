@@ -24,6 +24,10 @@
 #include <linux/vmalloc.h>
 #include <soc/qcom/glink.h>
 #include "sound/wcd-dsp-glink.h"
+/* HTC_AUD_START */
+#include <linux/vmalloc.h>
+#include <linux/mm.h>
+/* HTC_AUD_END */
 
 #define WDSP_GLINK_DRIVER_NAME "wcd-dsp-glink"
 #define WDSP_MAX_WRITE_SIZE (256 * 1024)
@@ -224,7 +228,21 @@ static void wdsp_glink_notify_rx(void *handle, const void *priv,
 static void wdsp_glink_notify_tx_done(void *handle, const void *priv,
 				      const void *pkt_priv, const void *ptr)
 {
-	wdsp_glink_free_tx_buf(priv, pkt_priv);
+	if (!pkt_priv) {
+		pr_err("%s: Invalid parameter\n", __func__);
+		return;
+	}
+	/* Free tx pkt */
+/* HTC_AUD_START */
+#if 0
+	kfree(pkt_priv);
+#else
+	if (is_vmalloc_addr(pkt_priv))
+		vfree(pkt_priv);
+	else
+		kfree(pkt_priv);
+#endif
+/* HTC_AUD_END */
 }
 /*
  * wdsp_glink_notify_tx_abort - Glink notify tx abort callback to
@@ -236,7 +254,21 @@ static void wdsp_glink_notify_tx_done(void *handle, const void *priv,
 static void wdsp_glink_notify_tx_abort(void *handle, const void *priv,
 				       const void *pkt_priv)
 {
-	wdsp_glink_free_tx_buf(priv, pkt_priv);
+	if (!pkt_priv) {
+		pr_err("%s: Invalid parameter\n", __func__);
+		return;
+	}
+	/* Free tx pkt */
+/* HTC_AUD_START */
+#if 0
+	kfree(pkt_priv);
+#else
+	if (is_vmalloc_addr(pkt_priv))
+		vfree(pkt_priv);
+	else
+		kfree(pkt_priv);
+#endif
+/* HTC_AUD_END */
 }
 
 /*
@@ -710,7 +742,16 @@ static void wdsp_glink_tx_buf_work(struct work_struct *work)
 			 * there won't be any tx_done notification to
 			 * free the buffer.
 			 */
-			vfree(tx_buf);
+/* HTC_AUD_START */
+#if 0
+			kfree(tx_buf);
+#else
+			if (is_vmalloc_addr(tx_buf))
+				vfree(tx_buf);
+			else
+				kfree(tx_buf);
+#endif
+/* HTC_AUD_END */
 		}
 	} else {
 		mutex_unlock(&tx_buf->ch->mutex);
@@ -720,7 +761,16 @@ static void wdsp_glink_tx_buf_work(struct work_struct *work)
 		 * Free tx_buf here as there won't be any tx_done
 		 * notification in this case also.
 		 */
-		vfree(tx_buf);
+/* HTC_AUD_START */
+#if 0
+		kfree(tx_buf);
+#else
+		if (is_vmalloc_addr(tx_buf))
+			vfree(tx_buf);
+		else
+			kfree(tx_buf);
+#endif
+/* HTC_AUD_END */
 	}
 }
 
@@ -832,11 +882,27 @@ static ssize_t wdsp_glink_write(struct file *file, const char __user *buf,
 
 	dev_dbg(wpriv->dev, "%s: count = %zd\n", __func__, count);
 
+/* HTC_AUD_START */
+#if 0
+	tx_buf_size = WDSP_MAX_WRITE_SIZE + sizeof(struct wdsp_glink_tx_buf);
+#else
 	tx_buf_size = count + sizeof(struct wdsp_glink_tx_buf);
-	tx_buf = vzalloc(tx_buf_size);
+#endif
+/* HTC_AUD_END */
+	tx_buf = kzalloc(tx_buf_size, GFP_KERNEL);
 	if (!tx_buf) {
+/* HTC_AUD_START */
+#if 0
 		ret = -ENOMEM;
 		goto done;
+#else
+		tx_buf = vzalloc(tx_buf_size);
+		if (!tx_buf) {
+			ret = -ENOMEM;
+			goto done;
+		}
+#endif
+/* HTC_AUD_END */
 	}
 
 	ret = copy_from_user(tx_buf->buf, buf, count);
@@ -863,7 +929,16 @@ static ssize_t wdsp_glink_write(struct file *file, const char __user *buf,
 		if (IS_ERR_VALUE(ret))
 			dev_err(wpriv->dev, "%s: glink register failed, ret = %d\n",
 				__func__, ret);
-		vfree(tx_buf);
+/* HTC_AUD_START */
+#if 0
+		kfree(tx_buf);
+#else
+		if (is_vmalloc_addr(tx_buf))
+			vfree(tx_buf);
+		else
+			kfree(tx_buf);
+#endif
+/* HTC_AUD_END */
 		break;
 	case WDSP_READY_PKT:
 		ret = wait_event_timeout(wpriv->link_state_wait,
@@ -877,7 +952,16 @@ static ssize_t wdsp_glink_write(struct file *file, const char __user *buf,
 			goto free_buf;
 		}
 		ret = 0;
-		vfree(tx_buf);
+/* HTC_AUD_START */
+#if 0
+		kfree(tx_buf);
+#else
+		if (is_vmalloc_addr(tx_buf))
+			vfree(tx_buf);
+		else
+			kfree(tx_buf);
+#endif
+/* HTC_AUD_END */
 		break;
 	case WDSP_CMD_PKT:
 		if (count <= (WDSP_WRITE_PKT_SIZE + WDSP_CMD_PKT_SIZE)) {
@@ -942,13 +1026,31 @@ static ssize_t wdsp_glink_write(struct file *file, const char __user *buf,
 	default:
 		dev_err(wpriv->dev, "%s: Invalid packet type\n", __func__);
 		ret = -EINVAL;
-		vfree(tx_buf);
+/* HTC_AUD_START */
+#if 0
+		kfree(tx_buf);
+#else
+		if (is_vmalloc_addr(tx_buf))
+			vfree(tx_buf);
+		else
+			kfree(tx_buf);
+#endif
+/* HTC_AUD_END */
 		break;
 	}
 	goto done;
 
 free_buf:
-	vfree(tx_buf);
+/* HTC_AUD_START */
+#if 0
+	kfree(tx_buf);
+#else
+	if (is_vmalloc_addr(tx_buf))
+		vfree(tx_buf);
+	else
+		kfree(tx_buf);
+#endif
+/* HTC_AUD_END */
 
 done:
 	return ret;
