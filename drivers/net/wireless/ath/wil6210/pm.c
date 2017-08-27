@@ -297,7 +297,6 @@ int wil_suspend(struct wil6210_priv *wil, bool is_runtime)
 
 	wil_dbg_pm(wil, "suspend: %s => %d\n",
 		   is_runtime ? "runtime" : "system", rc);
-
 	return rc;
 }
 
@@ -323,6 +322,13 @@ int wil_resume(struct wil6210_priv *wil, bool is_runtime)
 		rc = wil_resume_keep_radio_on(wil);
 	else
 		rc = wil_resume_radio_off(wil);
+
+	/* if netif up, bring hardware up
+	 * During open(), IFF_UP set after actual device method
+	 * invocation. This prevent recursive call to wil_up()
+	 */
+	if (ndev->flags & IFF_UP)
+		rc = wil_up(wil);
 
 out:
 	wil_dbg_pm(wil, "resume: %s => %d\n",
