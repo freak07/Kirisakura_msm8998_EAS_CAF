@@ -1522,8 +1522,14 @@ static int fastrpc_internal_invoke(struct fastrpc_file *fl, uint32_t mode,
 	if (fl->profile && !interrupted) {
 		if (invoke->handle != FASTRPC_STATIC_HANDLE_LISTENER)
 			fl->perf.invoke += getnstimediff(&invoket);
+/* HTC_AUD_START Fix Klockwork */
+#if 0
 		if (!(invoke->handle >= 0 &&
 			invoke->handle <= FASTRPC_STATIC_HANDLE_MAX))
+#else
+		if (!(invoke->handle <= FASTRPC_STATIC_HANDLE_MAX))
+#endif
+/* HTC_AUD_END */
 			fl->perf.count++;
 	}
 	return err;
@@ -1580,12 +1586,24 @@ static int fastrpc_init_process(struct fastrpc_file *fl,
 		inbuf.filelen = init->filelen;
 		fl->pd = 1;
 		if (init->filelen) {
+/* HTC_AUD_START Fix Klockwork */
+			if (init->filelen < 0) {
+				err = -EINVAL;
+				goto bail;
+			}
+/* HTC_AUD_END */
 			VERIFY(err, !fastrpc_mmap_create(fl, init->filefd, 0,
 				init->file, init->filelen, mflags, &file));
 			if (err)
 				goto bail;
 		}
 		inbuf.pageslen = 1;
+/* HTC_AUD_START Fix Klockwork */
+		if (init->memlen < 0) {
+			err = -EINVAL;
+			goto bail;
+		}
+/* HTC_AUD_END */
 		VERIFY(err, !fastrpc_mmap_create(fl, init->memfd, 0,
 				init->mem, init->memlen, mflags, &mem));
 		if (err)
@@ -1652,6 +1670,12 @@ static int fastrpc_init_process(struct fastrpc_file *fl,
 			goto bail;
 		inbuf.pgid = current->tgid;
 		inbuf.namelen = init->filelen;
+/* HTC_AUD_START Fix Klockwork */
+		if (init->memlen < 0) {
+			err = -EINVAL;
+			goto bail;
+		}
+/* HTC_AUD_END */
 		inbuf.pageslen = 0;
 		if (!me->staticpd_flags) {
 			inbuf.pageslen = 1;
