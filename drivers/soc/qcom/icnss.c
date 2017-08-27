@@ -1344,12 +1344,23 @@ static int wlfw_cap_send_sync_msg(void)
 		strlcpy(penv->fw_build_id, resp.fw_build_id,
 			QMI_WLFW_MAX_BUILD_ID_LEN_V01 + 1);
 
+	/* HTC_WIFI_START */
+#if 0
 	icnss_pr_dbg("Capability, chip_id: 0x%x, chip_family: 0x%x, board_id: 0x%x, soc_id: 0x%x, fw_version: 0x%x, fw_build_timestamp: %s, fw_build_id: %s",
 		     penv->chip_info.chip_id, penv->chip_info.chip_family,
 		     penv->board_info.board_id, penv->soc_info.soc_id,
 		     penv->fw_version_info.fw_version,
 		     penv->fw_version_info.fw_build_timestamp,
 		     penv->fw_build_id);
+#else
+	icnss_pr_info("Capability, chip_id: 0x%x, chip_family: 0x%x, board_id: 0x%x, soc_id: 0x%x, fw_version: 0x%x, fw_build_timestamp: %s, fw_build_id: %s",
+		     penv->chip_info.chip_id, penv->chip_info.chip_family,
+		     penv->board_info.board_id, penv->soc_info.soc_id,
+		     penv->fw_version_info.fw_version,
+		     penv->fw_version_info.fw_build_timestamp,
+		     penv->fw_build_id);
+#endif
+	/* HTC_WIFI_END */
 
 	return 0;
 
@@ -2410,6 +2421,9 @@ static int icnss_modem_notifier_nb(struct notifier_block *nb,
 	icnss_pr_vdbg("Modem-Notify: event %lu\n", code);
 
 	if (code == SUBSYS_AFTER_SHUTDOWN &&
+#if defined(CONFIG_HTC_FEATURES_SSR)
+		notif->enable_ramdump == ENABLE_RAMDUMP &&
+#endif
 		notif->crashed == CRASH_STATUS_ERR_FATAL) {
 		icnss_remove_msa_permissions(priv);
 		icnss_pr_info("Collecting msa0 segment dump\n");

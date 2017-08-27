@@ -351,7 +351,7 @@ inited:
 int get_service_location(char *client_name, char *service_name,
 				struct notifier_block *locator_nb)
 {
-	struct pd_qmi_client_data *pqcd;
+	struct pd_qmi_client_data *pqcd = NULL;
 	struct pd_qmi_work *pqw;
 	int rc = 0;
 
@@ -384,7 +384,12 @@ int get_service_location(char *client_name, char *service_name,
 	INIT_WORK(&pqw->pd_loc_work, pd_locator_work);
 	schedule_work(&pqw->pd_loc_work);
 
+	return rc;
+
 err:
+	if(pqcd)
+		kfree(pqcd);
+
 	return rc;
 }
 EXPORT_SYMBOL(get_service_location);
