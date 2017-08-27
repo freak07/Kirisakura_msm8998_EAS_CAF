@@ -49,6 +49,12 @@
 #define STM_RSP_STATUS_INDEX		8
 #define STM_RSP_NUM_BYTES		9
 
+#define SMD_DRAIN_BUF_SIZE 4096
+extern unsigned diag7k_debug_mask;
+extern unsigned diag9k_debug_mask;
+int diag_debug_buf_idx;
+unsigned char diag_debug_buf[1024];
+
 static int timestamp_switch;
 module_param(timestamp_switch, int, 0644);
 
@@ -154,6 +160,7 @@ int chk_apps_only(void)
 	case MSM_CPU_8627:
 	case MSM_CPU_9615:
 	case MSM_CPU_8974:
+	case MSM_CPU_8998:
 		return 1;
 	default:
 		return 0;
@@ -225,8 +232,8 @@ void chk_logging_wakeup(void)
 			 * their data read/logged. Detect and remedy this
 			 * situation.
 			 */
-			driver->data_ready[i] |= USER_SPACE_DATA_TYPE;
-			pr_debug("diag: Force wakeup of logging process\n");
+			driver->data_ready[i] |= USERMODE_DIAGFWD;
+			DIAG_DBUG("diag: Force wakeup of logging process\n");
 			wake_up_interruptible(&driver->wait_q);
 			break;
 		}
@@ -942,7 +949,7 @@ int diag_process_apps_pkt(unsigned char *buf, int len,
 	entry.cmd_code_lo = (uint16_t)(*(uint16_t *)temp);
 	temp += sizeof(uint16_t);
 
-	pr_debug("diag: In %s, received cmd %02x %02x %02x\n",
+	DIAGFWD_INFO("diag: In %s, received cmd %02x %02x %02x\n",
 		 __func__, entry.cmd_code, entry.subsys_id, entry.cmd_code_hi);
 
 	if (*buf == DIAG_CMD_LOG_ON_DMND && driver->log_on_demand_support &&
@@ -1127,7 +1134,7 @@ int diag_process_apps_pkt(unsigned char *buf, int len,
 		 * the tools. This is required since the tools is expecting a
 		 * HDLC encoded reponse for this request.
 		 */
-		pr_debug("diag: In %s, disabling HDLC encoding\n",
+		DIAGFWD_DBUG("diag: In %s, disabling HDLC encoding\n",
 		       __func__);
 		if (info)
 			info->hdlc_disabled = 1;
@@ -1158,7 +1165,7 @@ void diag_process_hdlc_pkt(void *data, unsigned len,
 	}
 
 	mutex_lock(&driver->diag_hdlc_mutex);
-	pr_debug("diag: In %s, received packet of length: %d, req_buf_len: %d\n",
+	DIAGFWD_DBUG("diag: In %s, received packet of length: %d, req_buf_len: %d\n",
 		 __func__, len, driver->hdlc_buf_len);
 
 	if (driver->hdlc_buf_len >= DIAG_MAX_REQ_SIZE) {
@@ -1167,6 +1174,7 @@ void diag_process_hdlc_pkt(void *data, unsigned len,
 		goto fail;
 	}
 
+	DIAGFWD_DBUG("HDLC decode fn, len of data  %d\n", len);
 	hdlc_decode->dest_ptr = driver->hdlc_buf + driver->hdlc_buf_len;
 	hdlc_decode->dest_size = DIAG_MAX_HDLC_BUF_SIZE - driver->hdlc_buf_len;
 	hdlc_decode->src_ptr = data;
@@ -1338,7 +1346,7 @@ static void hdlc_reset_timer_start(struct diag_md_session_t *info)
 
 static void hdlc_reset_timer_func(unsigned long data)
 {
-	pr_debug("diag: In %s, re-enabling HDLC encoding\n",
+	DIAGFWD_DBUG("diag: In %s, re-enabling HDLC encoding\n",
 		       __func__);
 	if (hdlc_reset) {
 		driver->hdlc_disabled = 0;
@@ -1623,11 +1631,11 @@ int diagfwd_init(void)
 	for (i = 0; i < DIAG_NUM_PROC; i++)
 		driver->real_time_mode[i] = 1;
 	driver->supports_separate_cmdrsp = 1;
-	driver->supports_apps_hdlc_encoding = 1;
 	driver->supports_apps_header_untagging = 1;
 	driver->supports_pd_buffering = 1;
 	for (i = 0; i < NUM_PERIPHERALS; i++)
 		driver->peripheral_untag[i] = 0;
+	driver->supports_apps_hdlc_encoding = 0;
 	mutex_init(&driver->diag_hdlc_mutex);
 	mutex_init(&driver->diag_cntl_mutex);
 	mutex_init(&driver->mode_lock);
