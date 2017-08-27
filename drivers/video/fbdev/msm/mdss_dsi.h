@@ -100,6 +100,7 @@ enum dsi_panel_bl_ctrl {
 	BL_PWM,
 	BL_WLED,
 	BL_DCS_CMD,
+	BL_BACKLIGHT,
 	UNKNOWN_CTRL,
 };
 
@@ -109,6 +110,7 @@ enum dsi_panel_status_mode {
 	ESD_REG,
 	ESD_REG_NT35596,
 	ESD_TE,
+	ESD_TE_V2,
 	ESD_MAX,
 };
 
@@ -414,6 +416,8 @@ struct dsi_err_container {
 #define MDSS_DSI_COMMAND_COMPRESSION_MODE_CTRL3	0x02b0
 #define MSM_DBA_CHIP_NAME_MAX_LEN				20
 
+#define COLOR_TEMP_MODE	32
+
 struct mdss_dsi_ctrl_pdata {
 	int ndx;	/* panel_num */
 	int (*on) (struct mdss_panel_data *pdata);
@@ -588,12 +592,36 @@ struct mdss_dsi_ctrl_pdata {
 	bool update_phy_timing; /* flag to recalculate PHY timings */
 
 	bool phy_power_off;
+
+        /*HTC: ADD*/
+	struct dsi_panel_cmds cabc_off_cmds;
+	struct dsi_panel_cmds cabc_ui_cmds;
+	struct dsi_panel_cmds cabc_video_cmds;
+
+	struct backlight_device *bklt_dev;
+
+	int burst_on_level;
+	int burst_off_level;
+
+	struct dsi_panel_cmds color_temp_cmds[COLOR_TEMP_MODE];
+	u8 color_temp_cnt;
+	struct dsi_panel_cmds disp_cali_cmds;
+	int color_rgb_loca;
+	int color_rgbcmy_loca;
+};
+
+struct te_data {
+	bool irq_enabled;
+	int irq;
+	int count;
+	spinlock_t spinlock;
 };
 
 struct dsi_status_data {
 	struct notifier_block fb_notifier;
 	struct delayed_work check_status;
 	struct msm_fb_data_type *mfd;
+	struct te_data te;
 };
 
 void mdss_dsi_read_hw_revision(struct mdss_dsi_ctrl_pdata *ctrl);
@@ -877,7 +905,7 @@ static inline bool mdss_dsi_is_ctrl_clk_slave(struct mdss_dsi_ctrl_pdata *ctrl)
 
 static inline bool mdss_dsi_is_te_based_esd(struct mdss_dsi_ctrl_pdata *ctrl)
 {
-	return (ctrl->status_mode == ESD_TE) &&
+	return (ctrl->status_mode == ESD_TE || ctrl->status_mode == ESD_TE_V2) &&
 		gpio_is_valid(ctrl->disp_te_gpio) &&
 		mdss_dsi_is_left_ctrl(ctrl);
 }

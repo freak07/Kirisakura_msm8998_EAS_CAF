@@ -186,6 +186,7 @@ Optional properties:
 					"bl_ctrl_pwm" = Backlight controlled by PWM gpio.
 					"bl_ctrl_wled" = Backlight controlled by WLED.
 					"bl_ctrl_dcs" = Backlight controlled by DCS commands.
+                                        "bl_ctrl_backlight" = Backlight controlled by backlight device.
 					other: Unknown backlight control. (default)
 - qcom,mdss-dsi-bl-pwm-pmi:		Boolean to indicate that PWM control is through second pmic chip.
 - qcom,mdss-dsi-bl-pmic-bank-select:	LPG channel for backlight.
@@ -271,8 +272,6 @@ Optional properties:
 					"trigger_sw_te" = Software trigger and TE
 - qcom,mdss-dsi-panel-framerate:	Specifies the frame rate for the panel.
 					60 = 60 frames per second (default)
-- qcom,mdss-dsi-host-esc-clk-freq-hz:	Specifies the escape clock needed for the host.
-					19200000 = 19.2 MHz (default)
 - qcom,mdss-dsi-panel-clockrate:	A 64 bit value specifies the panel clock speed in Hz.
 					0 = default value.
 - qcom,mdss-mdp-kickoff-threshold:	This property can be used to define a region
@@ -570,6 +569,13 @@ Optional properites:
 					Each child represents timings settings for a specific resolution.
 - qcom,mdss-dsi-post-init-delay:        Specifies required number of frames to wait so that panel can be functional
 					to show proper display.
+        
+- htc,burst-on-level           		An integer value indicates the burst mode on level.
+- htc,burst-off-level          		An integer value indicated the burst mode off level.
+- htc,burst-bl-value          		An integer value indicated the burst bl value.
+- htc,mdss-dsi-bl-backlight             Specifies primary backlight device node when "bl_ctrl_backlight" was used.
+- htc,color-temp-cmds:			A node lists the color temperature setting that base on
+					qcom dsi controller protocol.
 
 Additional properties added to the second level nodes that represent timings properties:
 - qcom,mdss-dsi-timing-default:		Property that specifies the current child as the default
@@ -668,7 +674,6 @@ Example:
 		qcom,mdss-dsi-mdp-trigger = <0>;
 		qcom,mdss-dsi-dma-trigger = <0>;
 		qcom,mdss-dsi-panel-framerate = <60>;
-		qcom,mdss-dsi-host-esc-clk-freq-hz = <19200000>;
 		qcom,mdss-dsi-panel-clockrate = <424000000>;
 		qcom,mdss-mdp-kickoff-threshold = <11 2430>;
 		qcom,mdss-mdp-kickoff-delay = <1000>;

@@ -383,15 +383,19 @@ static int mdss_dsi_panel_power_off(struct mdss_panel_data *pdata)
 		ret = 0;
 	}
 
-	if (mdss_dsi_pinctrl_set_state(ctrl_pdata, false))
+	/* HTC: At power off stage, move pin contrl function behind power off sequence */
+	/* if (mdss_dsi_pinctrl_set_state(ctrl_pdata, false))
 		pr_debug("reset disable: pinctrl not enabled\n");
-
+	*/
 	ret = msm_dss_enable_vreg(
 		ctrl_pdata->panel_power_data.vreg_config,
 		ctrl_pdata->panel_power_data.num_vreg, 0);
 	if (ret)
 		pr_err("%s: failed to disable vregs for %s\n",
 			__func__, __mdss_dsi_pm_name(DSI_PANEL_PM));
+	/* HTC: At power off stage, move pin contrl function behind power off sequenc */
+	if (mdss_dsi_pinctrl_set_state(ctrl_pdata, false))
+		pr_debug("reset disable: pinctrl not enabled\n");
 
 end:
 	return ret;
@@ -410,6 +414,10 @@ static int mdss_dsi_panel_power_on(struct mdss_panel_data *pdata)
 	ctrl_pdata = container_of(pdata, struct mdss_dsi_ctrl_pdata,
 				panel_data);
 
+	/* HTC: At power on stage, use pin contrl function before starting power on sequence */
+	if (mdss_dsi_pinctrl_set_state(ctrl_pdata, true))
+		pr_debug("reset disable: pinctrl not enabled\n");
+
 	ret = msm_dss_enable_vreg(
 		ctrl_pdata->panel_power_data.vreg_config,
 		ctrl_pdata->panel_power_data.num_vreg, 1);
@@ -427,8 +435,10 @@ static int mdss_dsi_panel_power_on(struct mdss_panel_data *pdata)
 	 */
 	if (pdata->panel_info.cont_splash_enabled ||
 		!pdata->panel_info.mipi.lp11_init) {
-		if (mdss_dsi_pinctrl_set_state(ctrl_pdata, true))
+		/* HTC: At power on stage, use pin contrl function before starting power on sequence */
+		/* if (mdss_dsi_pinctrl_set_state(ctrl_pdata, true))
 			pr_debug("reset enable: pinctrl not enabled\n");
+		*/
 
 		ret = mdss_dsi_panel_reset(pdata, 1);
 		if (ret)
@@ -1557,8 +1567,10 @@ int mdss_dsi_on(struct mdss_panel_data *pdata)
 	 * data lanes for LP11 init
 	 */
 	if (mipi->lp11_init) {
-		if (mdss_dsi_pinctrl_set_state(ctrl_pdata, true))
+		/* HTC: At power on stage, use pin contrl function before starting power on sequence */
+		/* if (mdss_dsi_pinctrl_set_state(ctrl_pdata, true))
 			pr_debug("reset enable: pinctrl not enabled\n");
+		*/
 		mdss_dsi_panel_reset(pdata, 1);
 	}
 
@@ -1586,6 +1598,11 @@ static int mdss_dsi_pinctrl_set_state(
 		return PTR_ERR(ctrl_pdata->pin_res.pinctrl);
 
 	pinfo = &ctrl_pdata->panel_data.panel_info;
+
+	/* HTC: skip pin contrl while device boot up */
+	if (pinfo->cont_splash_enabled)
+		return 0;
+
 	if ((mdss_dsi_is_right_ctrl(ctrl_pdata) &&
 		mdss_dsi_is_hw_config_split(ctrl_pdata->shared_data)) ||
 			pinfo->is_dba_panel) {
@@ -1693,8 +1710,11 @@ static int mdss_dsi_unblank(struct mdss_panel_data *pdata)
 	if ((pdata->panel_info.type == MIPI_CMD_PANEL) &&
 		mipi->vsync_enable && mipi->hw_vsync_mode) {
 		mdss_dsi_set_tear_on(ctrl_pdata);
+#if 0
+		/* VSYNC_GPIO irq was managed by mdss_dsi_status */
 		if (mdss_dsi_is_te_based_esd(ctrl_pdata))
 			enable_irq(gpio_to_irq(ctrl_pdata->disp_te_gpio));
+#endif
 	}
 
 	ctrl_pdata->ctrl_state |= CTRL_STATE_PANEL_INIT;
@@ -1764,11 +1784,14 @@ static int mdss_dsi_blank(struct mdss_panel_data *pdata, int power_state)
 
 	if ((pdata->panel_info.type == MIPI_CMD_PANEL) &&
 		mipi->vsync_enable && mipi->hw_vsync_mode) {
+#if 0
+		/* VSYNC_GPIO irq was managed by mdss_dsi_status */
 		if (mdss_dsi_is_te_based_esd(ctrl_pdata)) {
-				disable_irq(gpio_to_irq(
-					ctrl_pdata->disp_te_gpio));
-				atomic_dec(&ctrl_pdata->te_irq_ready);
+			disable_irq(gpio_to_irq(
+				ctrl_pdata->disp_te_gpio));
+			atomic_set(&ctrl_pdata->te_irq_ready, 0);
 		}
+#endif
 		mdss_dsi_set_tear_off(ctrl_pdata);
 	}
 
@@ -1819,18 +1842,6 @@ static int mdss_dsi_post_panel_on(struct mdss_panel_data *pdata)
 	pr_debug("%s-:\n", __func__);
 
 	return 0;
-}
-
-static irqreturn_t test_hw_vsync_handler(int irq, void *data)
-{
-	struct mdss_panel_data *pdata = (struct mdss_panel_data *)data;
-
-	pr_debug("HW VSYNC\n");
-	MDSS_XLOG(0xaaa, irq);
-	complete_all(&pdata->te_done);
-	if (pdata->next)
-		complete_all(&pdata->next->te_done);
-	return IRQ_HANDLED;
 }
 
 int mdss_dsi_cont_splash_on(struct mdss_panel_data *pdata)
@@ -2670,6 +2681,8 @@ static void mdss_dsi_timing_db_ctrl(struct mdss_dsi_ctrl_pdata *ctrl,
 		  MDSS_DSI_CORE_CLK, MDSS_DSI_CLK_ON);
 	MIPI_OUTP((ctrl->ctrl_base + 0x1e8), enable);
 	wmb(); /* ensure timing db is disabled */
+	MIPI_OUTP((ctrl->ctrl_base + 0x1e4), enable);
+	wmb(); /* ensure timing flush is disabled */
 	mdss_dsi_clk_ctrl(ctrl, ctrl->dsi_clk_handle,
 		  MDSS_DSI_CORE_CLK, MDSS_DSI_CLK_OFF);
 }
@@ -3297,8 +3310,6 @@ static int mdss_dsi_ctrl_probe(struct platform_device *pdev)
 	struct device_node *dsi_pan_node = NULL;
 	const char *ctrl_name;
 	struct mdss_util_intf *util;
-	static int te_irq_registered;
-	struct mdss_panel_data *pdata;
 
 	if (!pdev || !pdev->dev.of_node) {
 		pr_err("%s: pdev not found for DSI controller\n", __func__);
@@ -3422,23 +3433,6 @@ static int mdss_dsi_ctrl_probe(struct platform_device *pdev)
 			goto error_shadow_clk_deinit;
 		}
 		disable_irq(gpio_to_irq(ctrl_pdata->disp_te_gpio));
-	}
-
-	pdata = &ctrl_pdata->panel_data;
-	init_completion(&pdata->te_done);
-	if (pdata->panel_info.type == MIPI_CMD_PANEL) {
-		if (!te_irq_registered) {
-			rc = devm_request_irq(&pdev->dev,
-				gpio_to_irq(pdata->panel_te_gpio),
-				test_hw_vsync_handler, IRQF_TRIGGER_FALLING,
-				"VSYNC_GPIO", &ctrl_pdata->panel_data);
-			if (rc) {
-				pr_err("%s: TE request_irq failed\n", __func__);
-				goto error_shadow_clk_deinit;
-			}
-			te_irq_registered = 1;
-			disable_irq_nosync(gpio_to_irq(pdata->panel_te_gpio));
-		}
 	}
 
 	rc = mdss_dsi_get_bridge_chip_params(pinfo, ctrl_pdata, pdev);
@@ -4261,7 +4255,6 @@ static int mdss_dsi_parse_gpio_params(struct platform_device *ctrl_pdev,
 	 * If disp_en_gpio has been set previously (disp_en_gpio > 0)
 	 *  while parsing the panel node, then do not override it
 	 */
-	struct mdss_panel_data *pdata = &ctrl_pdata->panel_data;
 
 	if (ctrl_pdata->disp_en_gpio <= 0) {
 		ctrl_pdata->disp_en_gpio = of_get_named_gpio(
@@ -4279,7 +4272,6 @@ static int mdss_dsi_parse_gpio_params(struct platform_device *ctrl_pdev,
 	if (!gpio_is_valid(ctrl_pdata->disp_te_gpio))
 		pr_err("%s:%d, TE gpio not specified\n",
 						__func__, __LINE__);
-	pdata->panel_te_gpio = ctrl_pdata->disp_te_gpio;
 
 	ctrl_pdata->bklt_en_gpio = of_get_named_gpio(ctrl_pdev->dev.of_node,
 		"qcom,platform-bklight-en-gpio", 0);
