@@ -1255,7 +1255,8 @@ int ipa3_request_gsi_channel(struct ipa_request_gsi_channel_params *params,
 	memset(gsi_ep_cfg_ptr, 0, sizeof(struct ipa_gsi_ep_config));
 	gsi_ep_cfg_ptr = ipa_get_gsi_ep_info(ipa_ep_idx);
 	params->chan_params.evt_ring_hdl = ep->gsi_evt_ring_hdl;
-	params->chan_params.ch_id = gsi_ep_cfg_ptr->ipa_gsi_chan_num;
+	if(gsi_ep_cfg_ptr)
+		params->chan_params.ch_id = gsi_ep_cfg_ptr->ipa_gsi_chan_num;
 	gsi_res = gsi_alloc_channel(&params->chan_params, gsi_dev_hdl,
 		&ep->gsi_chan_hdl);
 	if (gsi_res != GSI_STATUS_SUCCESS) {
@@ -1267,8 +1268,9 @@ int ipa3_request_gsi_channel(struct ipa_request_gsi_channel_params *params,
 
 	memcpy(&ep->chan_scratch, &params->chan_scratch,
 		sizeof(union __packed gsi_channel_scratch));
-	ep->chan_scratch.xdci.max_outstanding_tre =
-		params->chan_params.re_size * gsi_ep_cfg_ptr->ipa_if_tlv;
+	if(gsi_ep_cfg_ptr)
+		ep->chan_scratch.xdci.max_outstanding_tre =
+			params->chan_params.re_size * gsi_ep_cfg_ptr->ipa_if_tlv;
 	gsi_res = gsi_write_channel_scratch(ep->gsi_chan_hdl,
 		params->chan_scratch);
 	if (gsi_res != GSI_STATUS_SUCCESS) {
