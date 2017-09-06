@@ -1628,19 +1628,64 @@ static inline unsigned long cpu_util(int cpu)
 	return __cpu_util(cpu, 0);
 }
 
+/**
+ * cpu_util_freq: get estimated utilization for the specified CPU
+ * @cpu: the CPU to get the estimated utilization for
+ *
+ * The estimated utilization of a CPU is defined to be the maximum between
+ * PELT utilization and the sum of the estimated utilization of the tasks
+ * currently RUNNABLE on that CPU.
+ *
+ * This represents the expected utilization of a CPU which has just got a
+ * big task running after a long sleep period. At the same time it
+ * preserves the benefits of the "blocked load" in describing the potential
+ * for other tasks waking up on the same CPU.
+ *
+ * Return: the estimated utilization for the specified CPU
+ */
 static inline unsigned long cpu_util_freq(int cpu)
 {
-	unsigned long util = cpu_rq(cpu)->cfs.avg.util_avg;
 	unsigned long capacity = capacity_orig_of(cpu);
+	struct sched_avg *sa = &cpu_rq(cpu)->cfs.avg;
+	unsigned long util;
 
 #ifdef CONFIG_SCHED_WALT
-	if (!walt_disabled && sysctl_sched_use_walt_cpu_util)
+	if (!walt_disabled && sysctl_sched_use_walt_cpu_util) {
 		util = div64_u64(cpu_rq(cpu)->prev_runnable_sum,
 				 walt_ravg_window >> SCHED_LOAD_SHIFT);
+		goto out;
+	}
 #endif
-	return (util >= capacity) ? capacity : util;
+
+	util = sa->util_avg;
+	if (sched_feat(UTIL_EST)) {
+		util = max(util, util_est(sa, UTIL_EST_LAST));
+		goto out;
+	}
+
+out:
+	return min(util, capacity);
 }
 
+/**
+ * cpu_util_est: get only estimated utilization for the specified CPU
+ * @cpu: the CPU to get the estimated utilization for
+ *
+ * If UTIL_EST is not enabled, estimated utilization is zero. Certain
+ * parts of wakeup will need to know if we are using PELT utilization
+ * or estimated utilization since it impacts what to do with task
+ * utilization. However most users are likely to want cpu_util_freq
+ * which will return the maximum of estimated & PELT utilization.
+ *
+ * Return: the estimated utilization for the specified CPU or zero
+ */
+static inline unsigned long cpu_util_est(int cpu)
+{
+	struct sched_avg *sa = &cpu_rq(cpu)->cfs.avg;
+	return sched_feat(UTIL_EST) ?
+			util_est(sa, UTIL_EST_LAST) :
+			0;
+}
 #endif
 
 #ifdef CONFIG_CPU_FREQ_GOV_SCHED
