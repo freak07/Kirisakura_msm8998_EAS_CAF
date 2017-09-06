@@ -1626,19 +1626,44 @@ static inline unsigned long cpu_util(int cpu)
 	return __cpu_util(cpu, 0);
 }
 
-static inline unsigned long cpu_util_freq(int cpu)
+/**
+ * cpu_util_est: estimated utilization for the specified CPU
+ * @cpu: the CPU to get the estimated utilization for
+ *
+ * The estimated utilization of a CPU is defined to be the maximum between its
+ * PELT's utilization and the sum of the estimated utilization of the tasks
+ * currently RUNNABLE on that CPU.
+ *
+ * This allows to properly represent the expected utilization of a CPU which
+ * has just got a big task running since a long sleep period. At the same time
+ * however it preserves the benefits of the "blocked load" in describing the
+ * potential for other tasks waking up on the same CPU.
+ *
+ * Return: the estimated utlization for the specified CPU
+ */
+static inline unsigned long cpu_util_est(int cpu)
 {
-	unsigned long util = cpu_rq(cpu)->cfs.avg.util_avg;
 	unsigned long capacity = capacity_orig_of(cpu);
+	struct sched_avg *sa = &cpu_rq(cpu)->cfs.avg;
+	unsigned long util;
 
 #ifdef CONFIG_SCHED_WALT
-	if (!walt_disabled && sysctl_sched_use_walt_cpu_util)
+	if (!walt_disabled && sysctl_sched_use_walt_cpu_util) {
 		util = div64_u64(cpu_rq(cpu)->prev_runnable_sum,
 				 walt_ravg_window >> SCHED_LOAD_SHIFT);
+		goto out;
+	}
 #endif
-	return (util >= capacity) ? capacity : util;
-}
 
+	util = sa->util_avg;
+	if (sched_feat(UTIL_EST)) {
+		util = max(util, util_est(sa, UTIL_EST_LAST));
+		goto out;
+	}
+
+out:
+	return min(util, capacity);
+}
 #endif
 
 #ifdef CONFIG_CPU_FREQ_GOV_SCHED
