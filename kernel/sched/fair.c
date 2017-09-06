@@ -6452,7 +6452,8 @@ done:
  */
 static int cpu_util_wake(int cpu, struct task_struct *p)
 {
-	unsigned long util, capacity;
+	unsigned long util, util_est;
+	unsigned long capacity;
 
 #ifdef CONFIG_SCHED_WALT
 	/*
@@ -6461,17 +6462,53 @@ static int cpu_util_wake(int cpu, struct task_struct *p)
 	 * utilization from cpu utilization. Instead just use
 	 * cpu_util for this case.
 	 */
-	if (!walt_disabled && sysctl_sched_use_walt_cpu_util)
-		return cpu_util(cpu);
+	if (!walt_disabled && sysctl_sched_use_walt_cpu_util) {
+		util = cpu_util(cpu);
+		goto out;
+	}
 #endif
+
 	/* Task has no contribution or is new */
-	if (cpu != task_cpu(p) || !p->se.avg.last_update_time)
-		return cpu_util(cpu);
+	util_est = cpu_util_est(cpu);
+	if (cpu != task_cpu(p) || !p->se.avg.last_update_time) {
+		util = util_est;
+		goto out;
+	}
 
-	capacity = capacity_orig_of(cpu);
+	/* Discount task's blocked util from CPU's util */
+	if (!sched_feat(UTIL_EST)) {
+		/* cpu_util_est() == cpu_util() */
+		util = max_t(long, util_est - task_util(p), 0);
+		goto out;
+	}
+
+	/*
+	 * These are the main cases covered:
+	 * - if *p is the only task sleeping on that CPU, then:
+	 *       (cpu_util == task_util) > (util_est == 0)
+	 *   and thus we return:
+	 *       util = (cpu_util - task_util) = 0
+	 *
+	 * - if other tasks are SLEEPING on the same CPU, which is just waking up, then:
+	 *        cpu_util > (util_est == 0)
+	 *   and thus we discount *p's blocked load by returning:
+	 *       util = (cpu_util - task_util) >= 0
+	 *
+	 * - if other tasks are RUNNABLE on that CPU and
+	 *       (util_est > cpu_util)
+	 *   then we use util_est since it returns a more restrictive
+	 *   estimation of the spare capacity on that CPU, by just considering
+	 *   the expected utilization of tasks already runnable on that CPU.
+	 */
 	util = max_t(long, cpu_util(cpu) - task_util(p), 0);
+	util = max(util_est, util);
 
-	return (util >= capacity) ? capacity : util;
+out:
+	/*
+	 * Cap CPU's utilization according to current capacity
+	 */
+	capacity = capacity_orig_of(cpu);
+	return min(capacity, util);
 }
 
 static int start_cpu(bool boosted)
@@ -6580,7 +6617,7 @@ static inline int find_best_target(struct task_struct *p, int *backup_cpu,
 			 * accounting. However, the blocked utilization may be zero.
 			 */
 			wake_util = cpu_util_wake(i, p);
-			new_util = wake_util + task_util(p);
+			new_util = wake_util + task_util_est(p);
 
 			/*
 			 * Ensure minimum capacity to grant the required boost.
@@ -8442,7 +8479,7 @@ static inline void update_sg_lb_stats(struct lb_env *env,
 			load = source_load(i, load_idx);
 
 		sgs->group_load += load;
-		sgs->group_util += cpu_util(i);
+		sgs->group_util += cpu_util_est(i);
 		sgs->sum_nr_running += rq->cfs.h_nr_running;
 
 		nr_running = rq->nr_running;
