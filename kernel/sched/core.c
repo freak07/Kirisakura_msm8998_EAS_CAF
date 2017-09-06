@@ -3011,8 +3011,8 @@ static void sched_freq_tick_pelt(int cpu)
 #ifdef CONFIG_SCHED_WALT
 static void sched_freq_tick_walt(int cpu)
 {
-	unsigned long cpu_utilization = cpu_util_freq(cpu);
 	unsigned long capacity_curr = capacity_curr_of(cpu);
+	unsigned long cpu_utilization = cpu_util_est(cpu);
 
 	if (walt_disabled || !sysctl_sched_use_walt_cpu_util)
 		return sched_freq_tick_pelt(cpu);
