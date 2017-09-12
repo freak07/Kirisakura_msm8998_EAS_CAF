@@ -5862,7 +5862,7 @@ relative_energy(unsigned int nrg_next, unsigned nrg_prev)
 	 *        100          90       -102  we will save 10% energy
 	 *         10         100        921  we will spend 10 times more energy
 	 */
-	int value = SCHED_CAPACITY_SHIFT;
+	int value = SCHED_CAPACITY_SCALE;
 
 	value *= abs((int)nrg_next - (int)nrg_prev);
 	value /= max(nrg_prev, nrg_next);
@@ -5968,7 +5968,29 @@ static inline int eas_deadzone_filter(struct energy_env *eenv)
 	 * An energy saving is considered meaningful if it reduces the energy
 	 * consumption of EAS_CPU_PRV CPU candidate by at least ~1.56%
 	 */
+#ifdef CONFIG_SCHED_TUNE
+	/* When schedtune is present, nrg_delta is not in raw units
+	 * instead it is either relative or normalised, which is
+	 * handled in schedtune_pespace_filter however non-boosted
+	 * tasks still have only deadzone energy filtering, so we
+	 * need to select an appropriate deadzone.
+	 *
+	 * In Relative mode:
+	 * nrg_delta is (+/-) 1024*((next-prev)/max(next,prev))
+	 * so margin should be 10*margin_pct.
+	 *
+	 * In Normalised mode:
+	 * nrg_delta is ?
+	 * so margin should be ?
+	 */
+	if (!sched_feat(ENERGY_NORMALIZE))
+		/* set margin to 3% * 10 */
+		margin = 30;
+	else
+		margin = 30;
+#else
 	margin = eenv->cpu[EAS_CPU_PRV].energy >> 6;
+#endif
 
 	/*
 	 * By default the EAS_CPU_PRV CPU is considered the most energy
