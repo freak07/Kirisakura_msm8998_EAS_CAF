@@ -3272,9 +3272,9 @@ static ssize_t diagchar_read(struct file *file, char __user *buf, size_t count,
 	}
 	if (timeout)
 		w_ret = wait_event_interruptible_timeout(driver->wait_q,
-				driver->data_ready[index], timeout * HZ);
+				(check_data_ready(index)) > 0, timeout * HZ);
 	else
-		w_ret = wait_event_interruptible(driver->wait_q, driver->data_ready[index]);
+		w_ret = wait_event_interruptible(driver->wait_q, (check_data_ready(index)) > 0);
 
 	DIAG_DBUG("%s:%s(parent:%s): tgid=%d, w_ret=%d\n", __func__,
 		current->comm, current->parent->comm, current->tgid, w_ret);
