@@ -410,12 +410,13 @@ static int wdsp_download_segments(struct wdsp_mgr_priv *wdsp,
 	/* Go through the list of segments and download one by one */
 	list_for_each_entry(seg, wdsp->seg_list, list) {
 		ret = wdsp_load_each_segment(wdsp, seg);
-		if (ret)
+		if (IS_ERR_VALUE(ret)) {
+			wdsp_broadcast_event_downseq(wdsp,
+						     WDSP_EVENT_DLOAD_FAILED,
+						     NULL);
 			goto dload_error;
+		}
 	}
-
-	/* Flush the list before setting status and notifying components */
-	wdsp_flush_segment_list(wdsp->seg_list);
 
 	WDSP_SET_STATUS(wdsp, status);
 
@@ -423,8 +424,6 @@ static int wdsp_download_segments(struct wdsp_mgr_priv *wdsp,
 #if 0
 	/* Notify all components that image is downloaded */
 	wdsp_broadcast_event_downseq(wdsp, post, NULL);
-done:
-	return ret;
 #endif
 /* HTC_AUD_END */
 
@@ -434,8 +433,7 @@ dload_error:
 	if (!IS_ERR_VALUE(ret))
 		wdsp_broadcast_event_downseq(wdsp, post, NULL);
 /* HTC_AUD_END */
-wdsp_broadcast_event_downseq(wdsp, WDSP_EVENT_DLOAD_FAILED, NULL);
-
+done:
 	return ret;
 }
 
@@ -489,14 +487,10 @@ static int wdsp_enable_dsp(struct wdsp_mgr_priv *wdsp)
 	/* Make sure wdsp is in good state */
 	if (!WDSP_STATUS_IS_SET(wdsp, WDSP_STATUS_CODE_DLOADED)) {
 		WDSP_ERR(wdsp, "WDSP in invalid state 0x%x", wdsp->status);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto done;
 	}
 
-	/*
-	 * Acquire SSR mutex lock to make sure enablement of DSP
-	 * does not race with SSR handling.
-	 */
-	WDSP_MGR_MUTEX_LOCK(wdsp, wdsp->ssr_mutex);
 	/* Download the read-write sections of image */
 	ret = wdsp_download_segments(wdsp, WDSP_ELF_FLAG_WRITE);
 	if (IS_ERR_VALUE(ret)) {
@@ -517,7 +511,6 @@ static int wdsp_enable_dsp(struct wdsp_mgr_priv *wdsp)
 	wdsp_broadcast_event_downseq(wdsp, WDSP_EVENT_POST_BOOTUP, NULL);
 	WDSP_SET_STATUS(wdsp, WDSP_STATUS_BOOTED);
 done:
-	WDSP_MGR_MUTEX_UNLOCK(wdsp, wdsp->ssr_mutex);
 	return ret;
 }
 
