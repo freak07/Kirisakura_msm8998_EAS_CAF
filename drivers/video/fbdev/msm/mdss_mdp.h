@@ -999,6 +999,8 @@ struct mdss_overlay_private {
 	dma_addr_t splash_mem_dma;
 
 	u8 secure_transition_state;
+
+	bool cache_null_commit; /* Cache if preceding commit was NULL */
 };
 
 struct mdss_mdp_set_ot_params {
