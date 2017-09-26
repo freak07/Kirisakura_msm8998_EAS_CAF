@@ -33,7 +33,7 @@ static bool enable_netlink_ws = false;
 static bool enable_netmgr_wl_ws = false;
 static bool enable_wlan_ipa_ws = false;
 static bool enable_wlan_pno_wl_ws = false;
-static bool enable_wcnss_filter_lock_ws = true;
+static bool enable_wcnss_filter_lock_ws = false;
 
 module_param(enable_qcom_rx_wakelock_ws, bool, 0644);
 module_param(enable_wlan_extscan_wl_ws, bool, 0644);
