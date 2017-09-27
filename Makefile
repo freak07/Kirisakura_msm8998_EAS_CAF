@@ -392,6 +392,9 @@ KBUILD_CFLAGS   := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
 		   -Werror-implicit-function-declaration \
 		   -Wno-format-security \
 		   -std=gnu89
+		   
+# Optimization for Kryo
+KBUILD_CFLAGS	+= -mcpu=cortex-a73.cortex-a53+crypto+crc -mtune=cortex-a73.cortex-a53
 
 KBUILD_AFLAGS_KERNEL :=
 KBUILD_CFLAGS_KERNEL :=
