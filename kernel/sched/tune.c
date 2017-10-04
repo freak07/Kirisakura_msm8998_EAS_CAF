@@ -18,6 +18,7 @@ bool schedtune_initialized = false;
 unsigned int sysctl_sched_cfs_boost __read_mostly;
 
 extern struct reciprocal_value schedtune_spc_rdiv;
+struct target_nrg schedtune_target_nrg;
 
 #ifdef CONFIG_DYNAMIC_STUNE_BOOST
 unsigned int top_app_idx = 0;
