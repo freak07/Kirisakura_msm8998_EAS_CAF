@@ -463,9 +463,6 @@ struct rt_rq {
 	unsigned long rt_nr_total;
 	int overloaded;
 	struct plist_head pushable_tasks;
-
-	struct sched_avg avg;
-
 #ifdef HAVE_RT_PUSH_IPI
 	int push_flags;
 	int push_cpu;
