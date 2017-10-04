@@ -78,9 +78,3 @@ SCHED_FEAT(ENERGY_AWARE, true)
 #else
 SCHED_FEAT(ENERGY_AWARE, false)
 #endif
-
-/*
- * UtilEst. Use estimated utilization for CPUs and TASKs.
- * Has no impact if CONFIG_SMP is not enabled.
- */
-SCHED_FEAT(UTIL_EST, false)
