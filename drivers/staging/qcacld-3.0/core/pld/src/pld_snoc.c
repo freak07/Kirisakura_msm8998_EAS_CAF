@@ -255,6 +255,9 @@ static int pld_snoc_uevent(struct device *dev,
 	case ICNSS_UEVENT_FW_CRASHED:
 		data.uevent = PLD_RECOVERY;
 		break;
+	case ICNSS_UEVENT_FW_READY:
+		data.uevent = PLD_FW_READY;
+		break;
 	default:
 		return 0;
 	}
