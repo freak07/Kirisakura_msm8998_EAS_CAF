@@ -574,7 +574,7 @@ static int wdsp_glink_ch_info_init(struct wdsp_glink_priv *wpriv,
 
 	mutex_lock(&wpriv->glink_mutex);
 	if (wpriv->ch) {
-		dev_err(wpriv->dev, "%s: glink ch memory is already allocated\n",
+		dev_err_ratelimited(wpriv->dev, "%s: glink ch memory is already allocated\n",
 			 __func__);
 		ret = -EINVAL;
 		goto done;
