@@ -46,8 +46,7 @@
 
 static void *ffs_ipc_log;
 #define ffs_log(fmt, ...) do { \
-	if (ffs_ipc_log)	\
-		ipc_log_string(ffs_ipc_log, "%s: " fmt,  __func__, \
+	ipc_log_string(ffs_ipc_log, "%s: " fmt,  __func__, \
 			##__VA_ARGS__); \
 	pr_debug(fmt, ##__VA_ARGS__); \
 } while (0)
@@ -1611,6 +1610,10 @@ static int functionfs_init(void)
 	else
 		pr_err("failed registering file system (%d)\n", ret);
 
+	ffs_ipc_log = ipc_log_context_create(NUM_PAGES, "f_fs", 0);
+	if (IS_ERR_OR_NULL(ffs_ipc_log))
+		ffs_ipc_log =  NULL;
+
 	return ret;
 }
 
@@ -1620,7 +1623,13 @@ static void functionfs_cleanup(void)
 
 	pr_info("unloading\n");
 	unregister_filesystem(&ffs_fs_type);
+
+	if (ffs_ipc_log) {
+		ipc_log_context_destroy(ffs_ipc_log);
+		ffs_ipc_log = NULL;
+	}
 }
+
 
 /* ffs_data and ffs_function construction and destruction code **************/
 
@@ -4062,28 +4071,5 @@ static char *ffs_prepare_buffer(const char __user *buf, size_t len)
 }
 
 DECLARE_USB_FUNCTION_INIT(ffs, ffs_alloc_inst, ffs_alloc);
-
-static int ffs_init(void)
-{
-	ffs_ipc_log = ipc_log_context_create(NUM_PAGES, "f_fs", 0);
-	if (IS_ERR_OR_NULL(ffs_ipc_log)) {
-		ffs_ipc_log =  NULL;
-		pr_err("%s: Create IPC log context failure\n",
-				__func__);
-	}
-
-	return 0;
-}
-module_init(ffs_init);
-
-static void __exit ffs_exit(void)
-{
-	if (ffs_ipc_log) {
-		ipc_log_context_destroy(ffs_ipc_log);
-		ffs_ipc_log = NULL;
-	}
-}
-module_exit(ffs_exit);
-
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Michal Nazarewicz");
