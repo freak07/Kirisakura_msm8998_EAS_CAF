@@ -1204,7 +1204,7 @@ struct ipa_context {
 	u32 ipa_rx_max_timeout_usec;
 	u32 ipa_polling_iteration;
 	bool ipa_uc_monitor_holb;
-	struct ipa_cne_evt ipa_cne_evt_req_cache[IPA_MAX_NUM_REQ_CACHE];
+	struct ipa_cne_evt ipa_cne_evt_req_cache[IPA_MAX_NUM_PIPES];
 	int num_ipa_cne_evt_req;
 	struct mutex ipa_cne_evt_lock;
 };

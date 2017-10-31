@@ -575,7 +575,7 @@ static int ipa_send_wan_msg(unsigned long usr_param, uint8_t msg_type,
 			sizeof(struct ipa_msg_meta));
 
 		ipa_ctx->num_ipa_cne_evt_req++;
-		ipa_ctx->num_ipa_cne_evt_req %= IPA_MAX_NUM_REQ_CACHE;
+		ipa_ctx->num_ipa_cne_evt_req %= IPA_MAX_NUM_PIPES;
 		mutex_unlock(&ipa_ctx->ipa_cne_evt_lock);
 	}
 

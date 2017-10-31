@@ -1272,7 +1272,7 @@ struct ipa3_context {
 	struct ipa3_smp2p_info smp2p_info;
 	u32 ipa_tz_unlock_reg_num;
 	struct ipa_tz_unlock_reg_info *ipa_tz_unlock_reg;
-	struct ipa_cne_evt ipa_cne_evt_req_cache[IPA_MAX_NUM_REQ_CACHE];
+	struct ipa_cne_evt ipa_cne_evt_req_cache[IPA3_MAX_NUM_PIPES];
 	int num_ipa_cne_evt_req;
 	struct mutex ipa_cne_evt_lock;
 };
