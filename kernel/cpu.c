@@ -91,11 +91,6 @@ static struct {
 #define cpuhp_lock_acquire()      lock_map_acquire(&cpu_hotplug.dep_map)
 #define cpuhp_lock_release()      lock_map_release(&cpu_hotplug.dep_map)
 
-void cpu_hotplug_mutex_held(void)
-{
-	lockdep_assert_held(&cpu_hotplug.lock);
-}
-EXPORT_SYMBOL(cpu_hotplug_mutex_held);
 
 void get_online_cpus(void)
 {
@@ -230,6 +225,12 @@ static int cpu_notify(unsigned long val, void *v)
 	return __cpu_notify(val, v, -1, NULL);
 }
 
+#ifdef CONFIG_HOTPLUG_CPU
+
+static void cpu_notify_nofail(unsigned long val, void *v)
+{
+	BUG_ON(cpu_notify(val, v));
+}
 EXPORT_SYMBOL(register_cpu_notifier);
 EXPORT_SYMBOL(__register_cpu_notifier);
 
@@ -246,12 +247,6 @@ void __unregister_cpu_notifier(struct notifier_block *nb)
 	raw_notifier_chain_unregister(&cpu_chain, nb);
 }
 EXPORT_SYMBOL(__unregister_cpu_notifier);
-
-#ifdef CONFIG_HOTPLUG_CPU
-static void cpu_notify_nofail(unsigned long val, void *v)
-{
-	BUG_ON(cpu_notify(val, v));
-}
 
 /**
  * clear_tasks_mm_cpumask - Safely clear tasks' mm_cpumask for a CPU
@@ -518,8 +513,8 @@ static int _cpu_up(unsigned int cpu, int tasks_frozen)
 	ret = __cpu_notify(CPU_UP_PREPARE | mod, hcpu, -1, &nr_calls);
 	if (ret) {
 		nr_calls--;
-		pr_warn_ratelimited("%s: attempt to bring up CPU %u failed\n",
-				    __func__, cpu);
+		pr_warn("%s: attempt to bring up CPU %u failed\n",
+			__func__, cpu);
 		goto out_notify;
 	}
 
@@ -543,41 +538,9 @@ out:
 	return ret;
 }
 
-static int switch_to_rt_policy(void)
-{
-	struct sched_param param = { .sched_priority = MAX_RT_PRIO - 1 };
-	unsigned int policy = current->policy;
-	int err;
-
-	/* Nobody should be attempting hotplug from these policy contexts. */
-	if (policy == SCHED_BATCH || policy == SCHED_IDLE ||
-					policy == SCHED_DEADLINE)
-		return -EPERM;
-
-	if (policy == SCHED_FIFO || policy == SCHED_RR)
-		return 1;
-
-	/* Only SCHED_NORMAL left. */
-	err = sched_setscheduler_nocheck(current, SCHED_FIFO, &param);
-	return err;
-
-}
-
-static int switch_to_fair_policy(void)
-{
-	struct sched_param param = { .sched_priority = 0 };
-
-	return sched_setscheduler_nocheck(current, SCHED_NORMAL, &param);
-}
-
 int cpu_up(unsigned int cpu)
 {
 	int err = 0;
-	int switch_err = 0;
-
-	switch_err = switch_to_rt_policy();
-	if (switch_err < 0)
-		return switch_err;
 
 	if (!cpu_possible(cpu)) {
 		pr_err("can't online cpu %d because it is not configured as may-hotadd at boot time\n",
@@ -603,14 +566,6 @@ int cpu_up(unsigned int cpu)
 
 out:
 	cpu_maps_update_done();
-
-	if (!switch_err) {
-		switch_err = switch_to_fair_policy();
-		if (switch_err)
-			pr_err("Hotplug policy switch err=%d Task %s pid=%d\n",
-				switch_err, current->comm, current->pid);
-	}
-
 	return err;
 }
 EXPORT_SYMBOL_GPL(cpu_up);
@@ -689,7 +644,7 @@ void enable_nonboot_cpus(void)
 		error = _cpu_up(cpu, 1);
 		trace_suspend_resume(TPS("CPU_ON"), cpu, false);
 		if (!error) {
-			pr_info("CPU%d is up\n", cpu);
+			pr_debug("CPU%d is up\n", cpu);
 			cpu_device = get_cpu_device(cpu);
 			if (!cpu_device)
 				pr_err("%s: failed to get cpu%d device\n",
