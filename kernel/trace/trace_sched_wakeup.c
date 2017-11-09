@@ -359,16 +359,6 @@ static bool report_latency(struct trace_array *tr, cycle_t delta)
 }
 
 static void
-probe_wakeup_migrate_task(void *ignore, struct task_struct *task, int cpu,
-							unsigned int load)
-{
-	if (task != wakeup_task)
-		return;
-
-	wakeup_current_cpu = cpu;
-}
-
-static void
 tracing_sched_switch_trace(struct trace_array *tr,
 			   struct task_struct *prev,
 			   struct task_struct *next,
@@ -622,13 +612,6 @@ static void start_wakeup_tracer(struct trace_array *tr)
 		goto fail_deprobe_wake_new;
 	}
 
-	ret = register_trace_sched_migrate_task(probe_wakeup_migrate_task, NULL);
-	if (ret) {
-		pr_info("wakeup trace: Couldn't activate tracepoint"
-			" probe to kernel_sched_migrate_task\n");
-		return;
-	}
-
 	wakeup_reset(tr);
 
 	/*
@@ -657,7 +640,6 @@ static void stop_wakeup_tracer(struct trace_array *tr)
 	unregister_trace_sched_switch(probe_wakeup_sched_switch, NULL);
 	unregister_trace_sched_wakeup_new(probe_wakeup, NULL);
 	unregister_trace_sched_wakeup(probe_wakeup, NULL);
-	unregister_trace_sched_migrate_task(probe_wakeup_migrate_task, NULL);
 }
 
 static bool wakeup_busy;
